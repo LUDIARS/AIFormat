@@ -14,3 +14,4 @@ LUDIARS はマイクロサービスアーキテクチャに従う。
 
 - サービスマップ: https://github.com/LUDIARS/LUDIARS
 - サービスの役割を増やした場合、またはサービスを追加した場合はサービスマップに追記する
+- https://github.com/LUDIARS/LUDIARS/blob/main/ServiceMap.md
