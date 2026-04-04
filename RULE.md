@@ -8,6 +8,184 @@ LUDIARS のサービス認証系は全て **Cernere** に従う。
 - 各サービスは Cernere を通してセッションを作成する
 - セッション以外での破壊的変更を伴う REST 操作は行わない
 
+### 1.1 Cernere 概要
+
+Cernere は汎用認証プラットフォーム & データリレーサーバーである。常時接続セッション（Always-Connected Session）を基盤とし、破壊的操作は認証済みかつ接続中のセッションからのみ受け付ける。
+
+| レイヤー | 技術 |
+|----------|------|
+| サーバー | Rust + Axum 0.7 |
+| データベース | PostgreSQL 17 |
+| セッションストア | Redis 7（TTL 7日） |
+| 認証方式 | GitHub OAuth / Google OAuth / bcrypt パスワード |
+| MFA | TOTP / SMS (AWS SNS) / Email (AWS SES) |
+| トークン | JWT（アクセス: 60分、リフレッシュ: 30日） |
+| フロントエンド | React 19 + React Router 7 + TypeScript + Vite |
+
+### 1.2 実装手順
+
+各サービスが Cernere を導入する際の手順を以下に示す。
+
+#### Step 1: WebSocket 接続の確立
+
+Cernere との通信は WebSocket を通じて行う。REST API は `/auth` エンドポイントのみ公開され、それ以外の全操作は認証済み WebSocket セッション経由で実行する。
+
+```
+# 新規接続（JWT 認証）
+GET /ws?token=<jwt>
+
+# 再接続（セッション ID）
+GET /ws?session_id=<id>
+```
+
+接続成功時、サーバーからの応答:
+
+```json
+{ "type": "connected", "session_id": "...", "user_state": {...} }
+```
+
+#### Step 2: Ping/Pong による常時接続の維持
+
+サーバーは 30 秒間隔で `ping` を送信する。クライアントは 10 秒以内に `pong` を返す必要がある。タイムアウト時はセッションが `SessionExpired` に遷移し、再認証が必要になる。
+
+```json
+// サーバー → クライアント
+{ "type": "ping", "ts": 1234567890 }
+
+// クライアント → サーバー
+{ "type": "pong", "ts": 1234567890 }
+```
+
+#### Step 3: メッセージプロトコルの実装
+
+全操作は `module_request` / `module_response` 形式で行う。
+
+**リクエスト:**
+
+```json
+{
+  "type": "module_request",
+  "module": "<Module>",
+  "action": "<Action>",
+  "payload": { ... }
+}
+```
+
+**レスポンス（成功）:**
+
+```json
+{
+  "type": "module_response",
+  "module": "<Module>",
+  "action": "<Action>",
+  "payload": { ... }
+}
+```
+
+**レスポンス（エラー）:**
+
+```json
+{
+  "type": "error",
+  "code": "command_error",
+  "message": "Error description"
+}
+```
+
+#### Step 4: リレーメッセージの実装
+
+セッション間通信（クロスデバイス同期等）にはリレー機能を使用する。デフォルトでは同一ユーザーのセッション間のみリレー可能。
+
+```json
+// ブロードキャスト（自分の他セッション全体）
+{ "type": "relay", "target": "broadcast", "payload": {...} }
+
+// 特定ユーザーの全セッション
+{ "type": "relay", "target": {"user": "<user_id>"}, "payload": {...} }
+
+// 特定セッション
+{ "type": "relay", "target": {"session": "<session_id>"}, "payload": {...} }
+```
+
+受信側:
+
+```json
+{ "type": "relayed", "from_session": "<id>", "payload": {...} }
+```
+
+#### Step 5: 認可モデルの適用
+
+Cernere は以下の権限階層を持つ。各サービスはこの権限モデルに従う。
+
+**システムレベル:**
+
+| ロール | 権限 |
+|--------|------|
+| `admin` | プロジェクト定義の管理（初回ログインユーザー） |
+| `general` | 一般ユーザー |
+
+**組織レベル:**
+
+| ロール | 権限 |
+|--------|------|
+| `owner` | 組織の作成者。組織の削除が可能 |
+| `admin` | メンバー管理、プロジェクトの有効化/無効化 |
+| `member` | 読み取り専用。自己退出のみ可能 |
+
+#### Step 6: 破壊的操作の防御層の実装
+
+破壊的操作（削除・上書き・権限変更）には 4 層の防御を適用する。
+
+1. **トークン検証** — セッション Cookie / Bearer Token の検証 → 失敗時 `401`
+2. **Redis TTL チェック** — Redis 上のセッション存在確認（TTL 7日） → 失敗時 `401`
+3. **ユーザー状態検証** — `LoggedIn` 状態であることを確認 → 失敗時 `403`
+4. **リソース権限確認** — リソースの所有権・ロールの確認 → 失敗時 `403`
+
+#### Step 7: セッション状態管理
+
+Redis を用いたユーザー状態のライフサイクル:
+
+```
+None → LoggedIn → SessionExpired → LoggedIn（再認証）
+  ↓
+ None（TTL 失効後）
+```
+
+- Redis キー: `ustate:{user_id}`
+- `LoggedIn` 状態のみ操作を許可
+- 切断時は即座に `SessionExpired` へ遷移
+- `SessionExpired` は再認証により `LoggedIn` へ復帰可能
+
+#### Step 8: 監査ログの記録
+
+全メソッド呼び出し（成功・失敗とも）は `operation_logs` テーブルに自動記録する。
+
+記録項目: ユーザー ID / セッション ID / メソッド名 / パラメータ / ステータス / タイムスタンプ
+
+### 1.3 セキュリティ設計原則
+
+Cernere のセキュリティは以下の 3 つの柱に基づく。
+
+1. **常時接続 WebSocket セッション** — 継続的な接続検証による認証維持
+2. **堅牢な認証基盤** — 接続確立時の JWT/セッション ID 検証 + Redis 状態追跡
+3. **破壊的操作の遮断** — 認証済みアクティブセッションを経由しない外部からの破壊的変更を完全にブロック
+
+### 1.4 脅威モデルと対策
+
+| 脅威 | 対策 |
+|------|------|
+| トークン窃取による不正使用 | 常時接続検証によりトークン単体では無効 |
+| セッションハイジャック | Ping/Pong による生存確認 + 接続の一意性保証 |
+| 未認証リクエストの注入 | WebSocket アップグレード時に JWT/セッション ID を必須化 |
+| クロスユーザーリレーの悪用 | リレー権限を同一ユーザーセッションに限定 |
+| 切断後の不正操作 | 即座に SessionExpired へ状態遷移 |
+
+### 1.5 参考ドキュメント
+
+- セキュリティ設計: https://github.com/LUDIARS/Cernere/blob/main/spec/security_design.md
+- リレー設計: https://github.com/LUDIARS/Cernere/blob/main/docs/relay_design.md
+- サービスインターフェース: https://github.com/LUDIARS/Cernere/blob/main/docs/service_interface.md
+
 ## 2. マイクロサービスアーキテクチャ
 
 LUDIARS はマイクロサービスアーキテクチャに従う。
