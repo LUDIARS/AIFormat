@@ -186,7 +186,44 @@ Cernere のセキュリティは以下の 3 つの柱に基づく。
 - リレー設計: https://github.com/LUDIARS/Cernere/blob/main/docs/relay_design.md
 - サービスインターフェース: https://github.com/LUDIARS/Cernere/blob/main/docs/service_interface.md
 
-## 2. マイクロサービスアーキテクチャ
+## 2. DB マイグレーション
+
+全サービスは以下のルールに従い DB マイグレーションを管理する。
+
+### ファイル管理
+
+- `migrations/` に連番 SQL ファイルで管理: `{番号}_{説明}.sql`
+- 番号は重複させない
+
+### 冪等性
+
+マイグレーションランナーは各 SQL ステートメントをセミコロンで分割し個別実行する。以下の PostgreSQL エラーコードはスキップして続行する:
+
+| コード | 意味 |
+|--------|------|
+| `42P07` | relation already exists |
+| `42701` | column already exists |
+| `42710` | object already exists |
+| `42P01` | relation does not exist (先行ステートメントがスキップされた場合) |
+| `42704` | type does not exist |
+| `23505` | duplicate key |
+
+### 禁止事項
+
+- `DROP TABLE` — テーブルは削除しない（論理削除 `is_active = false`）
+- `DROP COLUMN` — カラムは削除しない（データ保全）
+- `ALTER COLUMN ... TYPE` — 型変更は新カラム追加で対応
+- マイグレーション番号の再利用・重複
+
+### 推奨 SQL
+
+```sql
+CREATE TABLE IF NOT EXISTS my_table (...);
+CREATE INDEX IF NOT EXISTS idx_name ON my_table (col);
+ALTER TABLE my_table ADD COLUMN IF NOT EXISTS new_col TEXT;
+```
+
+## 3. マイクロサービスアーキテクチャ
 
 LUDIARS はマイクロサービスアーキテクチャに従う。
 
