@@ -40,6 +40,21 @@ if [ -d "$SKILLS_DIR" ]; then
   echo "  Skills: $count files → .claude/skills/aiformat-*.md"
 fi
 
+# .claude/commands/ にコマンドをコピー (aiformat- プレフィックス)
+COMMANDS_DIR="$AIFORMAT_DIR/.claude/commands"
+mkdir -p "$TARGET/.claude/commands"
+
+if [ -d "$COMMANDS_DIR" ]; then
+  cmd_count=0
+  for cmd in "$COMMANDS_DIR"/*.md; do
+    [ -f "$cmd" ] || continue
+    FILENAME="$(basename "$cmd")"
+    cp "$cmd" "$TARGET/.claude/commands/aiformat-$FILENAME"
+    cmd_count=$((cmd_count + 1))
+  done
+  echo "  Commands: $cmd_count files → .claude/commands/aiformat-*.md"
+fi
+
 # CLAUDE.md にルールファイルを埋め込む
 CLAUDE_MD="$TARGET/CLAUDE.md"
 
