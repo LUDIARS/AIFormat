@@ -56,6 +56,20 @@ gh pr list --state open --json number,title,headRefName,updatedAt,author,labels,
 - リポジトリはオープンPR件数の降順でソート
 - 「要対応」は `CHANGES_REQUESTED` の件数
 
+## スクリプト実行
+
+コマンドラインから直接実行する場合:
+
+```bash
+# Linux / macOS / Git Bash
+bash scripts/ludiars-pr.sh [base_dir]
+
+# Windows (cmd.exe)
+scripts\ludiars-pr.bat [base_dir]
+```
+
+デフォルトの `base_dir` は `<workspace-root>`。
+
 ## 注意事項
 
 - **読み取り専用**: ファイル変更・コミット・ブランチ切り替えは一切行わない
