@@ -93,6 +93,25 @@ function hasBom(buf) {
   return buf.length >= 3 && buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF;
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function writeFileWithRetry(filePath, data, retries = 3, delayMs = 1000) {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      await writeFile(filePath, data);
+      return;
+    } catch (err) {
+      if (i < retries && err.code === "EBUSY") {
+        console.log(`  [retry ${i + 1}/${retries}] ${filePath} (locked, waiting ${delayMs}ms...)`);
+        await sleep(delayMs);
+        delayMs *= 2;
+      } else {
+        throw err;
+      }
+    }
+  }
+}
+
 async function main() {
   const opts = parseArgs(process.argv);
   const dir = resolve(opts.dir);
@@ -118,6 +137,7 @@ async function main() {
   let converted = 0;
   let skipped = 0;
   let errors = 0;
+  const failedFiles = [];
 
   for await (const filePath of walkDir(dir, opts.extensions)) {
     scanned++;
@@ -139,13 +159,14 @@ async function main() {
       // Strip existing BOM if present, then prepend BOM
       const content = hasBom(buf) ? buf.subarray(3) : buf;
       const output = Buffer.concat([BOM, content]);
-      await writeFile(filePath, output);
+      await writeFileWithRetry(filePath, output);
       converted++;
 
       const rel = filePath.slice(dir.length + 1);
       console.log(`  ✓ ${rel}`);
     } catch (err) {
       errors++;
+      failedFiles.push(filePath);
       console.error(`  ✗ ${filePath}: ${err.message}`);
     }
   }
@@ -155,7 +176,10 @@ async function main() {
   console.log(`  Scanned:   ${scanned}`);
   console.log(`  Converted: ${converted}`);
   console.log(`  Skipped:   ${skipped} (already BOM)`);
-  if (errors > 0) console.log(`  Errors:    ${errors}`);
+  if (errors > 0) {
+    console.log(`  Errors:    ${errors}`);
+    for (const f of failedFiles) console.log(`    - ${f}`);
+  }
 }
 
 main();
