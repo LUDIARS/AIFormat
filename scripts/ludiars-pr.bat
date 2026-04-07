@@ -3,70 +3,12 @@ chcp 65001 >nul 2>nul
 setlocal enabledelayedexpansion
 REM LUDIARS All-Repo PR Status Check (Windows)
 REM Usage: ludiars-pr.bat [base_dir]
+REM Requires: gh, node
 
 set "BASE_DIR=%~1"
 if "%BASE_DIR%"=="" set "BASE_DIR=<workspace-root>"
 
-set TOTAL_PRS=0
-set TOTAL_NEEDS_ACTION=0
-set REPO_COUNT=0
-
-echo ## LUDIARS PR Status
-echo.
-
-REM Collect LUDIARS repos
-for /d %%D in ("%BASE_DIR%\*") do (
-    if exist "%%D\.git" (
-        for /f "delims=" %%R in ('git -C "%%D" remote get-url origin 2^>nul') do (
-            echo %%R | findstr /i "LUDIARS" >nul 2>nul
-            if !errorlevel! equ 0 (
-                set /a REPO_COUNT+=1
-                call :process_repo "%%D"
-            )
-        )
-    )
-)
-
-echo ---
-echo.
-echo ### Summary
-echo - Repos: %REPO_COUNT%
-echo - Open PRs: %TOTAL_PRS%
-echo - Needs action (CHANGES_REQUESTED): %TOTAL_NEEDS_ACTION%
+REM Delegate to Node.js for reliable output
+node -e "const{execSync:x}=require('child_process'),fs=require('fs'),path=require('path');const base=process.argv[1];const dirs=fs.readdirSync(base,{withFileTypes:true}).filter(d=>d.isDirectory()).map(d=>path.join(base,d.name)).filter(d=>{try{const r=x('git -C \"'+d+'\" remote get-url origin',{encoding:'utf8',stdio:['pipe','pipe','pipe']});return/LUDIARS/i.test(r)}catch{return false}});let total=0,action=0;console.log('## LUDIARS PR Status\n');const results=[];for(const d of dirs){const name=path.basename(d);try{const j=x('gh pr list --repo LUDIARS/'+name+' --state open --json number,title,headRefName,author,reviewDecision',{encoding:'utf8',stdio:['pipe','pipe','pipe']});const prs=JSON.parse(j);results.push({name,prs})}catch{results.push({name,prs:[]})}}results.sort((a,b)=>b.prs.length-a.prs.length);for(const{name,prs}of results){if(!prs.length){console.log('### '+name+' (0)\nNo open PRs\n');continue}console.log('### '+name+' ('+prs.length+')\n');console.log('| PR | Title | Branch | Author | Review |');console.log('|----|-------|--------|--------|--------|');for(const p of prs){const rv=p.reviewDecision||'PENDING';const mk=rv==='CHANGES_REQUESTED'?' !!':'';console.log('| #'+p.number+' | '+p.title.slice(0,50)+' | '+p.headRefName+' | '+(p.author&&p.author.login||'?')+' | '+rv+mk+' |');if(rv==='CHANGES_REQUESTED')action++}total+=prs.length;console.log('')}console.log('---\n### Summary');console.log('- Repos: '+dirs.length);console.log('- Open PRs: '+total);console.log('- Needs action: '+action)" "%BASE_DIR%"
 
 endlocal
-exit /b 0
-
-:process_repo
-set "REPO_DIR=%~1"
-for %%N in ("%REPO_DIR%") do set "REPO_NAME=%%~nxN"
-
-set "PR_COUNT="
-for /f %%C in ('gh pr list --repo "LUDIARS/%REPO_NAME%" --state open --json number --jq "length" 2^>nul') do set "PR_COUNT=%%C"
-
-if not defined PR_COUNT set "PR_COUNT=0"
-if "%PR_COUNT%"=="" set "PR_COUNT=0"
-
-if "%PR_COUNT%"=="0" (
-    echo ### %REPO_NAME% ^(0^)
-    echo No open PRs
-    echo.
-    exit /b
-)
-
-echo ### %REPO_NAME% ^(%PR_COUNT%^)
-echo.
-echo ^| PR ^| Title ^| Branch ^| Author ^| Review ^|
-echo ^|----^|-------^|--------^|--------^|--------^|
-
-gh pr list --repo "LUDIARS/%REPO_NAME%" --state open --json number,title,headRefName,author,reviewDecision --jq ".[] | \"| #\(.number) | \(.title[:50]) | \(.headRefName) | \(.author.login) | \(.reviewDecision // \"PENDING\") |\"" 2>nul
-
-set "NEEDS_ACTION="
-for /f %%A in ('gh pr list --repo "LUDIARS/%REPO_NAME%" --state open --json reviewDecision --jq "[.[] | select(.reviewDecision==\"CHANGES_REQUESTED\")] | length" 2^>nul') do set "NEEDS_ACTION=%%A"
-if not defined NEEDS_ACTION set "NEEDS_ACTION=0"
-
-set /a TOTAL_PRS+=%PR_COUNT%
-set /a TOTAL_NEEDS_ACTION+=%NEEDS_ACTION%
-
-echo.
-exit /b
