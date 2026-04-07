@@ -58,17 +58,11 @@ gh pr list --state open --json number,title,headRefName,updatedAt,author,labels,
 
 ## スクリプト実行
 
-コマンドラインから直接実行する場合:
-
 ```bash
-# Linux / macOS / Git Bash
-bash scripts/ludiars-pr.sh [base_dir]
-
-# Windows (cmd.exe)
-scripts\ludiars-pr.bat [base_dir]
+node scripts/ludiars-pr.mjs [base_dir]
 ```
 
-デフォルトの `base_dir` は `<workspace-root>`。
+デフォルトの `base_dir` は `<workspace-root>`。Node.js + gh CLI が必要。
 
 ## 注意事項
 
