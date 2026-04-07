@@ -32,6 +32,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONFIG_PATH = join(__dirname, "env-leak-keywords.json");
 const BASE_DIR = process.env.LUDIARS_BASE || "<workspace-root>";
 
+let VERBOSE = false;
+
+function log(...args) {
+  if (VERBOSE) console.log("[v]", ...args);
+}
+
 // ── キーワード管理 ────────────────────────────────────────
 
 function loadKeywords() {
@@ -78,7 +84,9 @@ const DEFAULT_IGNORE_GLOBS = [
 function scanRepo(repoPath, keywords) {
   if (!keywords.length) return [];
 
-  // grep -rn で一括検索。大文字小文字を区別しない。
+  const repoName = basename(repoPath);
+  log(`Scanning: ${repoName} (${repoPath})`);
+
   const excludeArgs = DEFAULT_IGNORE_GLOBS.map(
     (g) => `--exclude=${g}`
   ).join(" ");
@@ -94,14 +102,14 @@ function scanRepo(repoPath, keywords) {
     .map((d) => `--exclude-dir=${d}`)
     .join(" ");
 
-  // キーワードを | で結合して一括 grep
   const pattern = keywords.map((k) => escapeRegex(k)).join("|");
+  const cmd = `grep -rniE "${pattern}" ${excludeArgs} ${excludeDirArgs} .`;
+  log(`  cmd: ${cmd}`);
 
+  const t0 = performance.now();
   const results = [];
   try {
-    const output = execSync(
-      `grep -rniE "${pattern}" ${excludeArgs} ${excludeDirArgs} .`,
-      {
+    const output = execSync(cmd, {
         cwd: repoPath,
         encoding: "utf-8",
         stdio: ["pipe", "pipe", "pipe"],
@@ -133,6 +141,9 @@ function scanRepo(repoPath, keywords) {
       console.error(`Scan error in ${repoPath}: ${err.message}`);
     }
   }
+
+  const elapsed = (performance.now() - t0).toFixed(0);
+  log(`  ${repoName}: ${results.length} hit(s) in ${elapsed}ms`);
 
   return results;
 }
@@ -201,29 +212,38 @@ function runCli(args) {
     }
 
     case "scan": {
-      const target = args[1] || BASE_DIR;
+      const remaining = args.slice(1).filter((a) => a !== "-v");
+      const target = remaining[0] || BASE_DIR;
       if (config.keywords.length === 0) {
         console.log("No keywords registered. Use 'add' to register.");
         return;
       }
 
+      console.log(`Keywords: ${config.keywords.join(", ")}`);
+
       if (existsSync(join(target, ".git"))) {
         // 単一リポジトリ
-        console.log(`Scanning: ${target}`);
+        console.log(`Target: ${target}`);
         const hits = scanRepo(target, config.keywords);
         printHits(basename(target), hits);
+        console.log(`\nTotal: ${hits.length} hit(s)`);
       } else {
         // ディレクトリ内の全リポジトリ
         const repos = listRepos();
+        console.log(`Target: ${repos.length} repositories in ${target}`);
+        log(`Repos: ${repos.map((r) => r.name).join(", ")}`);
         let total = 0;
+        let clean = 0;
         for (const repo of repos) {
           const hits = scanRepo(repo.path, config.keywords);
           if (hits.length) {
             printHits(repo.name, hits);
             total += hits.length;
+          } else {
+            clean++;
           }
         }
-        console.log(`\nTotal: ${total} hit(s) across ${repos.length} repositories`);
+        console.log(`\nTotal: ${total} hit(s) across ${repos.length} repositories (${clean} clean)`);
       }
       break;
     }
@@ -303,19 +323,25 @@ function startServer(port) {
       }
 
       const allResults = [];
+      const scanLog = [];
       const targetRepos = body.repo
         ? [{ name: body.repo, path: join(BASE_DIR, body.repo) }]
         : listRepos();
 
+      const t0 = performance.now();
       for (const repo of targetRepos) {
         if (!existsSync(join(repo.path, ".git"))) continue;
+        const rt0 = performance.now();
         const hits = scanRepo(repo.path, config.keywords);
+        const elapsed = (performance.now() - rt0).toFixed(0);
+        scanLog.push({ repo: repo.name, hits: hits.length, ms: parseInt(elapsed, 10) });
         if (hits.length) {
           allResults.push({ repo: repo.name, hits });
         }
       }
+      const totalMs = (performance.now() - t0).toFixed(0);
 
-      json(res, 200, { results: allResults });
+      json(res, 200, { results: allResults, scanLog, totalMs: parseInt(totalMs, 10), scannedRepos: targetRepos.length });
       return;
     }
 
@@ -486,6 +512,17 @@ async function runScan() {
     return;
   }
 
+  // Scan log
+  if (data.scanLog) {
+    const logHtml = '<div style="margin:8px 0;font-size:12px;font-family:monospace;color:#8b949e;max-height:120px;overflow:auto;background:#0d1117;padding:6px;border-radius:4px">' +
+      '<div style="color:#58a6ff;margin-bottom:4px">Scanned ' + data.scannedRepos + ' repos in ' + data.totalMs + 'ms</div>' +
+      data.scanLog.map(l =>
+        '<div>' + (l.hits > 0 ? '<span style="color:#f85149">' : '<span style="color:#3fb950">') +
+        l.repo + '</span> — ' + l.hits + ' hits (' + l.ms + 'ms)</div>'
+      ).join('') + '</div>';
+    resultsEl.innerHTML = logHtml;
+  }
+
   const totalHits = data.results.reduce((s, r) => s + r.hits.length, 0);
   if (totalHits === 0) {
     statusEl.innerHTML = '<span class="clean">CLEAN</span> — 漏洩なし';
@@ -494,7 +531,7 @@ async function runScan() {
 
   statusEl.innerHTML = '<span class="found">' + totalHits + ' 件検出</span>';
 
-  resultsEl.innerHTML = data.results.map(r => {
+  resultsEl.innerHTML += data.results.map(r => {
     const hitsHtml = r.hits.map(h =>
       '<div class="hit">' +
         '<span class="file">' + esc(h.file) + '</span>' +
@@ -521,7 +558,11 @@ fetchRepos();
 
 // ── エントリポイント ──────────────────────────────────────
 
-const args = process.argv.slice(2);
+const rawArgs = process.argv.slice(2);
+if (rawArgs.includes("-v") || rawArgs.includes("--verbose")) {
+  VERBOSE = true;
+}
+const args = rawArgs.filter((a) => a !== "-v" && a !== "--verbose");
 
 if (args[0] === "serve") {
   const portIdx = args.indexOf("--port");
@@ -529,7 +570,8 @@ if (args[0] === "serve") {
   startServer(port);
 } else if (args.length === 0) {
   console.log(
-    "Usage: env-leak-checker.mjs <scan|list|add|remove|serve> [args]"
+    "Usage: env-leak-checker.mjs <scan|list|add|remove|serve> [args]\n" +
+    "  -v, --verbose    Show scan targets and timing"
   );
 } else {
   runCli(args);
