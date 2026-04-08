@@ -14,8 +14,8 @@ Cernere は汎用認証プラットフォーム & データリレーサーバー
 
 | レイヤー | 技術 |
 |----------|------|
-| サーバー | Rust + Axum 0.7 |
-| データベース | PostgreSQL 17 |
+| サーバー | TypeScript / Hono (Node.js) |
+| データベース | PostgreSQL 17 (Drizzle ORM) |
 | セッションストア | Redis 7（TTL 7日） |
 | 認証方式 | GitHub OAuth / Google OAuth / bcrypt パスワード |
 | MFA | TOTP / SMS (AWS SNS) / Email (AWS SES) |
