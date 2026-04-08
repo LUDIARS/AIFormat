@@ -17,7 +17,6 @@
  */
 
 import { createServer } from "node:http";
-import { execSync } from "node:child_process";
 import {
   readFileSync,
   writeFileSync,
@@ -51,33 +50,64 @@ function saveKeywords(config) {
   writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + "\n");
 }
 
-// ── 除外パターン ──────────────────────────────────────────
 
-const DEFAULT_IGNORE_GLOBS = [
-  ".env*",
-  "*.lock",
-  "*.min.js",
-  "*.min.css",
-  "node_modules/**",
-  ".git/**",
-  "dist/**",
-  "build/**",
-  "target/**",
-  "*.wasm",
-  "*.png",
-  "*.jpg",
-  "*.ico",
-  "*.woff*",
-  "*.ttf",
-  "*.otf",
-  "*.db",
-  "*.db-*",
-  "*.sqlite",
-  "package-lock.json",
-  "pnpm-lock.yaml",
-  "Cargo.lock",
+// ── 除外ディレクトリ / 拡張子 ─────────────────────────────
+
+const IGNORE_DIRS = new Set([
+  "node_modules", ".git", "dist", "build", "target",
+  "__pycache__", "venv", ".next", ".nuxt",
+]);
+
+const IGNORE_EXTS = new Set([
+  ".lock", ".wasm", ".png", ".jpg", ".jpeg", ".gif", ".ico",
+  ".woff", ".woff2", ".ttf", ".otf", ".eot",
+  ".db", ".db-shm", ".db-wal", ".sqlite",
+  ".min.js", ".min.css",
+]);
+
+const IGNORE_NAMES = new Set([
+  "package-lock.json", "pnpm-lock.yaml", "Cargo.lock",
   "env-leak-keywords.json",
-];
+]);
+
+function shouldIgnoreFile(relPath) {
+  const name = basename(relPath);
+  if (name.startsWith(".env")) return true;
+  if (IGNORE_NAMES.has(name)) return true;
+  const ext = name.includes(".") ? "." + name.split(".").pop() : "";
+  if (IGNORE_EXTS.has(ext)) return true;
+  // Check double extensions like .min.js
+  const parts = name.split(".");
+  if (parts.length >= 3) {
+    const dblExt = "." + parts.slice(-2).join(".");
+    if (IGNORE_EXTS.has(dblExt)) return true;
+  }
+  return false;
+}
+
+// ── ファイル走査 (Node.js ネイティブ、grep 不要) ──────────
+
+function walkDir(dir, relBase = "") {
+  const files = [];
+  let entries;
+  try { entries = readdirSync(dir, { withFileTypes: true }); }
+  catch { return files; }
+
+  for (const entry of entries) {
+    if (IGNORE_DIRS.has(entry.name)) continue;
+    const fullPath = join(dir, entry.name);
+    const relPath = relBase ? relBase + "/" + entry.name : entry.name;
+
+    if (entry.isDirectory()) {
+      files.push(...walkDir(fullPath, relPath));
+    } else if (entry.isFile()) {
+      if (!shouldIgnoreFile(relPath)) {
+        files.push({ fullPath, relPath });
+      }
+    }
+  }
+  return files;
+}
 
 // ── スキャン実行 ──────────────────────────────────────────
 
@@ -86,70 +116,41 @@ function scanRepo(repoPath, keywords) {
 
   const repoName = basename(repoPath);
   log(`Scanning: ${repoName} (${repoPath})`);
-
-  const excludeArgs = DEFAULT_IGNORE_GLOBS.map(
-    (g) => `--exclude=${g}`
-  ).join(" ");
-  const excludeDirArgs = [
-    "node_modules",
-    ".git",
-    "dist",
-    "build",
-    "target",
-    "__pycache__",
-    "venv",
-  ]
-    .map((d) => `--exclude-dir=${d}`)
-    .join(" ");
-
-  // キーワードごとに個別 grep を実行し結果をマージする。
-  // cygwin grep は -e 複数指定や -f - で不安定なため、
-  // 1キーワード1回の grep が最も堅牢。
   log(`  keywords: ${keywords.join(", ")}`);
 
   const t0 = performance.now();
   const results = [];
-  const seen = new Set(); // file:line の重複排除
+  const kwLower = keywords.map((kw) => kw.toLowerCase());
+  const files = walkDir(repoPath);
+  log(`  files: ${files.length}`);
 
-  for (const kw of keywords) {
-    const pattern = escapeRegex(kw);
-    const cmd = `grep -rni "${pattern}" ${excludeArgs} ${excludeDirArgs} .`;
-
+  for (const { fullPath, relPath } of files) {
+    let content;
     try {
-      const output = execSync(cmd, {
-          cwd: repoPath,
-          encoding: "utf-8",
-          stdio: ["pipe", "pipe", "pipe"],
-          maxBuffer: 10 * 1024 * 1024,
-        }
-      );
+      content = readFileSync(fullPath, "utf-8");
+    } catch {
+      continue; // binary or unreadable
+    }
 
-      for (const line of output.split("\n")) {
-        if (!line.trim()) continue;
-        const m = line.match(/^\.\/(.+?):(\d+):(.*)$/);
-        if (!m) continue;
+    const contentLower = content.toLowerCase();
 
-        const [, file, lineNum, content] = m;
-        const key = `${file}:${lineNum}`;
-        if (seen.has(key)) {
-          // 既存エントリにキーワードを追加
-          const existing = results.find((r) => r.file === file && r.line === parseInt(lineNum, 10));
-          if (existing && !existing.keywords.includes(kw)) existing.keywords.push(kw);
-          continue;
-        }
-        seen.add(key);
+    // Quick check: does any keyword appear anywhere in the file?
+    const matchingKws = keywords.filter((kw, i) => contentLower.includes(kwLower[i]));
+    if (!matchingKws.length) continue;
 
-        results.push({
-          file,
-          line: parseInt(lineNum, 10),
-          content: content.trim().slice(0, 200),
-          keywords: [kw],
-        });
-      }
-    } catch (err) {
-      if (err.status !== 1) {
-        log(`  grep error for "${kw}": ${err.message?.split("\n")[0]}`);
-      }
+    // Line-level scan
+    const lines = content.split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      const lineLower = lines[i].toLowerCase();
+      const lineKws = matchingKws.filter((kw) => lineLower.includes(kw.toLowerCase()));
+      if (!lineKws.length) continue;
+
+      results.push({
+        file: relPath,
+        line: i + 1,
+        content: lines[i].trim().slice(0, 200),
+        keywords: lineKws,
+      });
     }
   }
 
@@ -158,10 +159,6 @@ function scanRepo(repoPath, keywords) {
   log(`  ${repoName}: ${results.length} hit(s) in ${elapsed}ms`);
 
   return results;
-}
-
-function escapeRegex(s) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 // ── LUDIARS リポジトリ列挙 ────────────────────────────────
