@@ -102,45 +102,57 @@ function scanRepo(repoPath, keywords) {
     .map((d) => `--exclude-dir=${d}`)
     .join(" ");
 
-  const pattern = keywords.map((k) => escapeRegex(k)).join("|");
-  const cmd = `grep -rniE "${pattern}" ${excludeArgs} ${excludeDirArgs} .`;
-  log(`  cmd: ${cmd}`);
+  // キーワードごとに個別 grep を実行し結果をマージする。
+  // cygwin grep は -e 複数指定や -f - で不安定なため、
+  // 1キーワード1回の grep が最も堅牢。
+  log(`  keywords: ${keywords.join(", ")}`);
 
   const t0 = performance.now();
   const results = [];
-  try {
-    const output = execSync(cmd, {
-        cwd: repoPath,
-        encoding: "utf-8",
-        stdio: ["pipe", "pipe", "pipe"],
-        maxBuffer: 10 * 1024 * 1024,
-      }
-    );
+  const seen = new Set(); // file:line の重複排除
 
-    for (const line of output.split("\n")) {
-      if (!line.trim()) continue;
-      const match = line.match(/^\.\/(.+?):(\d+):(.*)$/);
-      if (!match) continue;
+  for (const kw of keywords) {
+    const pattern = escapeRegex(kw);
+    const cmd = `grep -rni "${pattern}" ${excludeArgs} ${excludeDirArgs} .`;
 
-      const [, file, lineNum, content] = match;
-      // どのキーワードにヒットしたか特定
-      const matched = keywords.filter((kw) =>
-        content.toLowerCase().includes(kw.toLowerCase())
+    try {
+      const output = execSync(cmd, {
+          cwd: repoPath,
+          encoding: "utf-8",
+          stdio: ["pipe", "pipe", "pipe"],
+          maxBuffer: 10 * 1024 * 1024,
+        }
       );
 
-      results.push({
-        file,
-        line: parseInt(lineNum, 10),
-        content: content.trim().slice(0, 200),
-        keywords: matched,
-      });
-    }
-  } catch (err) {
-    // grep が何もヒットしないと exit code 1 で返る
-    if (err.status !== 1) {
-      console.error(`Scan error in ${repoPath}: ${err.message}`);
+      for (const line of output.split("\n")) {
+        if (!line.trim()) continue;
+        const m = line.match(/^\.\/(.+?):(\d+):(.*)$/);
+        if (!m) continue;
+
+        const [, file, lineNum, content] = m;
+        const key = `${file}:${lineNum}`;
+        if (seen.has(key)) {
+          // 既存エントリにキーワードを追加
+          const existing = results.find((r) => r.file === file && r.line === parseInt(lineNum, 10));
+          if (existing && !existing.keywords.includes(kw)) existing.keywords.push(kw);
+          continue;
+        }
+        seen.add(key);
+
+        results.push({
+          file,
+          line: parseInt(lineNum, 10),
+          content: content.trim().slice(0, 200),
+          keywords: [kw],
+        });
+      }
+    } catch (err) {
+      if (err.status !== 1) {
+        log(`  grep error for "${kw}": ${err.message?.split("\n")[0]}`);
+      }
     }
   }
+
 
   const elapsed = (performance.now() - t0).toFixed(0);
   log(`  ${repoName}: ${results.length} hit(s) in ${elapsed}ms`);
