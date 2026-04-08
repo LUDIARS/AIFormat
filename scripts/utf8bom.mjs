@@ -27,7 +27,7 @@ const DEFAULT_EXTENSIONS = new Set([
   ".rs",
   ".py",
   ".java",
-  ".glsl", ".vert", ".frag", ".comp",
+  // Note: .glsl/.vert/.frag/.comp are excluded — SPIR-V compilers reject BOM
 ]);
 
 function parseArgs(argv) {
