@@ -243,3 +243,104 @@ LUDIARS はマイクロサービスアーキテクチャに従う。
 - **Web サービス**（サーバーサイド + フロントエンド）は **TypeScript** で実装する
 - **デスクトップアプリケーション**（ネイティブ機能を持つもの）は **Rust + Tauri** で実装する
 - 技術スタックの詳細は `RULE_TECH_STACK.md` を参照
+
+## 5. 個人データの保管禁止
+
+LUDIARS の各サービスは、ユーザーの **個人データ** を独自の DB に保管してはいけない。
+**Cernere を単一情報源 (single source of truth)** とし、各サービスは `id` を
+FK アンカーとしてのみ保持する。
+
+### 5.1 個人データの定義
+
+以下を「個人データ」とみなし、各サービス DB に保管しない:
+
+- 氏名 (`name`, `display_name`)
+- メールアドレス (`email`)
+- 認可ロール (`role`) — Cernere の権限モデルに従う
+- パスワード関連 (`password_hash`, `salt`)
+- OAuth トークン (`google_*`, `github_*`, `refresh_token`, `access_token`)
+- 最終ログイン日時 (`last_login_at`)
+- その他、ユーザー本人の属性とみなせるもの
+
+### 5.2 取得方法
+
+- 各サービスは Cernere の Profile API (`fetchCernereProfile(userId)`) で取得
+- パフォーマンスのため Redis でキャッシュする (TTL 1時間程度)
+- Cernere 未接続時のフォールバック (プレースホルダ表示) を実装する
+
+### 5.3 既存サービスでの移行手順
+
+1. 個人データ取得用のサービス層 (例: `src/auth/user-info.ts`) を作成し、
+   `getUserInfo(userId)` API を提供
+2. consumer コードを `userRepo.findById(id).name` から
+   `getUserInfo(id).name` に置換
+3. DB スキーマの該当カラムは **`DROP COLUMN 禁止` ルール** に従い残置
+4. ただし `NOT NULL` / `UNIQUE` 制約は解除し、新規コードから読み書き
+   しない旨をコメントで明示する
+
+### 5.4 サービス固有フィールドは保持OK
+
+各サービスのドメイン固有フィールド (例: Schedula の `major` 学科、
+`calendar_access_id` Calendar 連携 nonce) で、Cernere に存在せず
+そのサービスでのみ意味を持つものは引き続き各サービス DB に保存してよい。
+
+### 5.5 なぜ？
+
+- Cernere はユーザーデータの opt-out をサポートする方針。各サービスが
+  個人データを持つと opt-out 時の整合性が取れない
+- 個人情報は単一情報源 (Cernere) に集約することで GDPR 等への対応が容易
+- 認証関連トークン (JWT, OAuth refresh token 等) も Cernere が責任を持つ
+
+## 6. リポジトリ作業ルール (worktree 必須)
+
+**作業時はメインチェックアウトでブランチを切り替えず、必ず `git worktree`
+を使用すること。**
+
+### 6.1 ルール
+
+- main 以外のブランチでの編集・コミットは **worktree 経由で行う**
+- メインチェックアウト (`<repo>` 直下) は基本 main に固定し、参照・リリース
+  操作のみで使う
+- 各作業ブランチは専用ディレクトリにチェックアウトする
+  (例: `<repo>` の隣に `<repo>-<branch>/` を置く、もしくはコンシューマ側
+  リポジトリの `external/...` 配下に worktree を貼る)
+- 作業終了時は worktree を残してよい (削除する場合は `git worktree remove`)
+
+### 6.2 なぜ？
+
+同一リポジトリに対して複数のセッション・プロセス (別 Claude Code セッション、
+スケジュール実行、エディタの自動操作、CI フック等) が同時に動くことがある。
+メインチェックアウトでブランチを切り替えると、以下の事故が起こりうる:
+
+- 別プロセスが checkout した結果、自分が編集中のファイルが消失する
+- 自分のコミットが意図しない別ブランチに乗る (HEAD が動いた状態でコミットされる)
+- 作業途中のステージが他プロセスにより破棄される
+
+worktree は各ブランチに独立した作業ツリーを与えるため、上記の競合が
+構造的に発生しない。
+
+### 6.3 操作例
+
+```bash
+# ブランチ用 worktree を作成
+git -C <repo> worktree add <別パス> <branch名>
+
+# 既存ブランチを別パスに展開
+git -C <repo> worktree add ../my-repo-feature feature/x
+
+# ergo のモジュールブランチをコンシューマアプリ側に取り込む例
+git -C ../ergo worktree add external/ergo/inspector module/inspector
+
+# 一覧
+git -C <repo> worktree list
+
+# 後片付け (作業ツリー削除)
+git -C <repo> worktree remove <別パス>
+```
+
+### 6.4 Claude / 自動化エージェントへの適用
+
+- ブランチ操作 (`git checkout <branch>`) は **メインチェックアウト上では行わない**
+- 新ブランチ作成時もまず main を派生させた worktree を作る
+- 既に worktree がある場合は新規に作らず再利用する
+- リリース集約等、main を確定操作する場合のみメインチェックアウトを使う
