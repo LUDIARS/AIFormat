@@ -19,6 +19,7 @@
 | [脆弱性レビュー](REVIEW_VULNERABILITY.md) | セキュリティ脆弱性とゼロトラスト評価 | 脆弱性 / ゼロトラスト強度 / セキュリティ強度 |
 | [実装評価](REVIEW_IMPLEMENTATION.md) | コード品質・データ設計・運用信頼性 | コード品質 / データスキーマ / SRE |
 | [不足機能評価](REVIEW_MISSING_FEATURES.md) | 機能改善案と不足機能の提案 | 機能改善 / 不足機能 |
+| [品質保証レビュー](REVIEW_QUALITY.md) | テスト・性能・ライセンス・移植性・ドキュメント | テスト戦略 / 性能 / ライセンス / クロスプラットフォーム / ドキュメント完備性 |
 
 ---
 
@@ -37,6 +38,11 @@
 | 9 | SRE | A~D | | [実装評価](REVIEW_IMPLEMENTATION.md) |
 | 10 | ゼロトラスト | A~D | | [脆弱性レビュー](REVIEW_VULNERABILITY.md) |
 | 11 | セキュリティ | A~D | | [脆弱性レビュー](REVIEW_VULNERABILITY.md) |
+| 12 | テスト戦略・カバレッジ | A~D | | [品質保証レビュー](REVIEW_QUALITY.md) |
+| 13 | パフォーマンス・ベンチマーク | A~D | | [品質保証レビュー](REVIEW_QUALITY.md) |
+| 14 | ライセンス遵守 | A~D | | [品質保証レビュー](REVIEW_QUALITY.md) |
+| 15 | クロスプラットフォーム互換 | A~D | | [品質保証レビュー](REVIEW_QUALITY.md) |
+| 16 | ドキュメント完備性 | A~D | | [品質保証レビュー](REVIEW_QUALITY.md) |
 
 **評価基準:**
 - **A**: 問題なし。ベストプラクティスに準拠
