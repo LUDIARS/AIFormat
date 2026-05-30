@@ -13,7 +13,7 @@ LUDIARS 全リポジトリ共通の設計ルール・レビューフォーマッ
 
 - [`RULE_CODE.md`](./RULE_CODE.md) — **コーディング** (第 I 部: プロジェクトごとの宣言 / 第 II 部: 全プロジェクト共通の基本ルール)
 - [`RULE_DATA_SCHEMA.md`](./RULE_DATA_SCHEMA.md) — **データスキーマ** (種類分類 / 保存先 / 保護要否を spec に整備)
-- [`RULE_TEST.md`](./RULE_TEST.md) — **テスト** (CI 必須 / アーキ別にコンテンツごとのテスト設計)
+- [`RULE_TEST.md`](./RULE_TEST.md) — **テスト** (CI 必須 / アーキ別にコンテンツごとのテスト設計 / テスト充実度を品質基準に)
 - [`RULE_SRE.md`](./RULE_SRE.md) — **SRE・運用** (種別別の運用 watchpoint / Issue 報告)
 
 ## レビュー (見るとき)
