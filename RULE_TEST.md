@@ -15,8 +15,10 @@ LUDIARS 全リポジトリ共通の **テストの規約**。要点は 2 つ:
 
 - 全リポジトリは CI を持ち、最低限 **lint / typecheck (or build) / test** を
   自動実行する。
-- **PR は CI グリーンを前提にマージする** (CI が赤い PR はマージしない)。
-  オートマージは使わない ([`REVIEW.md`](./REVIEW.md) AUTOFIX / メモリ運用に従う)。
+- **PR は自動マージしてよい (Ars 配下にオートマージのブロック規約は置かない)。** CI がある
+  repo は green を待ってからマージ。**CI が無い repo でもマージ可**、**CI が red の時だけ**
+  マージせず直す。マージは `gh pr merge --squash --delete-branch` + 後片付け
+  (ブランチ削除・作業 worktree 撤去・ローカル main 更新) まで行う。
 - public repo + self-hosted runner では、fork PR から runner を踏めないよう
   `github.repository` + `github.ref` の ref guard を必ず入れる。
 - **バグ修正は再現テストを先に書く** (回帰防止)。修正だけして終わりにしない。
