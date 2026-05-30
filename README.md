@@ -4,9 +4,17 @@ LUDIARS 全リポジトリ共通の設計ルール・レビューフォーマッ
 
 ## ルール (書くとき)
 
+基盤・スタック:
+
 - [`RULE.md`](./RULE.md) — 基盤設計ルール (認証 / DB マイグレーション / マイクロサービス / 個人データ / worktree)
-- [`RULE_CODE.md`](./RULE_CODE.md) — コード規約 (単一責任 / ファイル分割 / レイヤー依存 / 命名 / 例外処理)
 - [`RULE_TECH_STACK.md`](./RULE_TECH_STACK.md) — 技術スタック選定
+
+観点別の実装規約 (4 観点):
+
+- [`RULE_CODE.md`](./RULE_CODE.md) — **コーディング** (第 I 部: プロジェクトごとの宣言 / 第 II 部: 全プロジェクト共通の基本ルール)
+- [`RULE_DATA_SCHEMA.md`](./RULE_DATA_SCHEMA.md) — **データスキーマ** (種類分類 / 保存先 / 保護要否を spec に整備)
+- [`RULE_TEST.md`](./RULE_TEST.md) — **テスト** (CI 必須 / アーキ別にコンテンツごとのテスト設計)
+- [`RULE_SRE.md`](./RULE_SRE.md) — **SRE・運用** (種別別の運用 watchpoint / Issue 報告)
 
 ## レビュー (見るとき)
 

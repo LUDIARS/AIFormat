@@ -37,6 +37,20 @@
 - [ ] 1 ファイル 1 責務になっているか・複数責務が同居していないか (分割判断は行数でなく責任。単一責任なら大きくても可、RULE_CODE §2)
 - [ ] レイヤー依存方向が一方向か (下層が上層を import していないか、RULE_CODE §3)
 - [ ] 例外の握りつぶしに理由コメントがあるか (best-effort swallow の明示、RULE_CODE §7)
+- [ ] 外部入力をスキーマ検証し、必須前提を入口で検証して fail-fast しているか・silent に握っていないか (RULE_CODE §9)
+- [ ] 確保した資源 (子プロセス/socket/handle/GPU/timer/listener/lock) が全経路 (異常・early-return 含む) で解放され、置き換えが回転方式か (RULE_CODE §10)
+- [ ] floating promise が無いか・共有可変状態の並行アクセスが設計されているか (RULE_CODE §11)
+- [ ] プロセス境界/パイプ/ネットワークの I/O で encoding/byte-order/binary-mode が明示され、データ用ストリームにログが混ざっていないか (RULE_CODE §12)
+- [ ] 子プロセス起動が shell 非経由・引数配列・cwd 明示で、exit/error を購読しクリーンアップに繋げているか (RULE_CODE §13)
+- [ ] secret / 個人データをソース・ログ・例外に出していないか・直書きしていないか (RULE_CODE §14)
+- [ ] ログが共有ロガー (Vestigium) 経由か・レベルが適切か・console 直書きが残っていないか (RULE_CODE §15)
+- [ ] 時刻が UTC/ISO8601 か・非決定値 (時刻/乱数) が注入可能か (RULE_CODE §16)
+- [ ] ソース・コメントが UTF-8 か・コメントが why を書いているか (RULE_CODE §17)
+- [ ] 新規依存が最小限か・ライセンス確認済か・sibling path dep を使っていないか (RULE_CODE §18)
+- [ ] non-null 断言の濫用が無いか・const 既定か・引数の隠れた破壊的変更が無いか (RULE_CODE §19)
+- [ ] TODO/FIXME が Issue 化されているか・コメントアウト旧コードが残っていないか (RULE_CODE §20)
+
+> データスキーマ / テスト / 運用の観点は `RULE_DATA_SCHEMA.md` / `RULE_TEST.md` / `RULE_SRE.md` と対応するレビュー (`REVIEW_DESIGN` / `REVIEW_QUALITY` / スタイル別) で確認する。
 
 ---
 
