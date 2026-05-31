@@ -74,6 +74,7 @@ unit / integration / E2E のレベル別にテストの有無と実効性を評�
 | A~D | API / インターフェースリファレンス | |
 | A~D | inline コメントの粒度 | |
 | A~D | 開発者向け CONTRIBUTING / ランブック | |
+| A~D | spec/ ドキュメント充実度 (data/feature/interface/setup/test) | |
 
 ### チェック項目
 
@@ -85,6 +86,9 @@ unit / integration / E2E のレベル別にテストの有無と実効性を評�
 - [ ] 障害発生時のランブック / トラブルシューティングがあるか
 - [ ] サンプルコード / examples がビルド可能で陳腐化していないか
 - [ ] ドキュメントが実装と乖離していないか (CI で doc test / lint を回しているか)
+- [ ] `spec/` が [`FORMAT_SPEC.md`](../FORMAT_SPEC.md) の 6 分類 (data/feature/interface/plan/setup/test) に整理されているか
+- [ ] **ドキュメント充実度**: `plan` を除く 5 分類が、そのプロジェクトに該当する範囲をカバーしているか (DB があるのに `data/` が無い等は不充実)
+- [ ] `feature/` が 1 機能 1 ファイルで主要機能を網羅しているか
 
 ---
 
