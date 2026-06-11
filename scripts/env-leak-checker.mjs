@@ -280,15 +280,10 @@ function startServer(port) {
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
 
-    // CORS
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-    if (req.method === "OPTIONS") {
-      res.writeHead(204);
-      res.end();
-      return;
-    }
+    // 同一オリジン配信のため CORS ヘッダは付けない。
+    // `Access-Control-Allow-Origin: *` を付けると、127.0.0.1 bind であっても
+    // ブラウザで開いた任意サイトの JS が /api/* (keyword CRUD / repo scan の内容) を
+    // 読めてしまう (drive-by exfiltration) ため撤去 (CWE-942/306)。
 
     // API routes
     if (url.pathname === "/api/keywords" && req.method === "GET") {
@@ -365,8 +360,11 @@ function startServer(port) {
     res.end("Not found");
   });
 
-  server.listen(port, () => {
-    console.log(`env-leak-checker GUI: http://localhost:${port}`);
+  // 127.0.0.1 限定で bind する。0.0.0.0 (host 未指定の既定) だと、検出した
+  // 環境名・個人名キーワードやヒット行のファイル内容を返す API が LAN 上の
+  // 他ホストから読めてしまう (CWE-668) ため loopback に限定。
+  server.listen(port, "127.0.0.1", () => {
+    console.log(`env-leak-checker GUI: http://127.0.0.1:${port}`);
   });
 }
 
@@ -575,7 +573,9 @@ const args = rawArgs.filter((a) => a !== "-v" && a !== "--verbose");
 
 if (args[0] === "serve") {
   const portIdx = args.indexOf("--port");
-  const port = portIdx >= 0 ? parseInt(args[portIdx + 1], 10) : 7700;
+  const parsedPort = portIdx >= 0 ? parseInt(args[portIdx + 1], 10) : 7700;
+  // NaN (--port に非数値) のとき listen(NaN) で実行時エラーになるため既定へフォールバック。
+  const port = Number.isInteger(parsedPort) ? parsedPort : 7700;
   startServer(port);
 } else if (args.length === 0) {
   console.log(
