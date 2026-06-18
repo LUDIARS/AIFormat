@@ -1,0 +1,48 @@
+# HARNESS の決定的ルールを CI ゲート化する再利用可能ワークフロー (workflow_call)。
+#
+# 各 LUDIARS リポは下記 3 行を自分の workflow に足すだけで有効化できる:
+#
+#   jobs:
+#     harness:
+#       uses: LUDIARS/AIFormat/.github/workflows/harness-checks.yml@main
+#
+# private リポを横断 checkout するため、必要なら secrets.AIFORMAT_TOKEN (repo:read PAT)
+# を渡す (同 org public なら既定 GITHUB_TOKEN で足りる)。
+#
+#   jobs:
+#     harness:
+#       uses: LUDIARS/AIFormat/.github/workflows/harness-checks.yml@main
+#       secrets:
+#         aiformat_token: ${{ secrets.AIFORMAT_TOKEN }}
+
+name: harness-checks
+
+on:
+  workflow_call:
+    secrets:
+      aiformat_token:
+        required: false
+        description: AIFormat (scripts 提供元) を checkout する PAT。未指定なら GITHUB_TOKEN。
+
+jobs:
+  harness:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout caller repo
+        uses: actions/checkout@v4
+
+      - name: Checkout AIFormat (harness scripts)
+        uses: actions/checkout@v4
+        with:
+          repository: LUDIARS/AIFormat
+          ref: main
+          path: .aiformat
+          token: ${{ secrets.aiformat_token || github.token }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run HARNESS checks
+        run: node .aiformat/scripts/harness-check.mjs .
