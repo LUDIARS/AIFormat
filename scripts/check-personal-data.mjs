@@ -22,11 +22,14 @@
  */
 
 import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
-import { join, relative, basename } from "node:path";
+import { join, relative, basename, resolve } from "node:path";
 
 const args = process.argv.slice(2);
 const JSON_OUT = args.includes("--json");
 const repoDir = args.find((a) => !a.startsWith("--")) || process.cwd();
+// 絶対パス化してから Cernere 判定する (CI は repoDir="." で渡るため、相対のままだと
+// basename が "." になり Cernere スキップが効かず正当な個人データ列を誤検出する)。
+const repoAbs = resolve(repoDir);
 
 // 列名だけでは個人データか判定できない (同じ display_name でも users テーブルなら
 // 個人データ、interviewer_personas なら AI ペルソナ名で別物)。そこで 2 段階で見る:
@@ -55,7 +58,7 @@ function loadAllow() {
 }
 const allow = loadAllow();
 // Cernere は個人データの正本なので自身は対象外
-const isCernere = /(^|[\/\\])Cernere([\/\\]|$)/i.test(repoDir) || basename(repoDir).toLowerCase() === "cernere";
+const isCernere = /(^|[\/\\])Cernere([\/\\]|$)/i.test(repoAbs) || basename(repoAbs).toLowerCase() === "cernere";
 
 function safeReaddir(p) { try { return readdirSync(p); } catch { return []; } }
 function isDir(p) { try { return statSync(p).isDirectory(); } catch { return false; } }
