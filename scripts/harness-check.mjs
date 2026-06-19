@@ -3,8 +3,9 @@
  * harness-check — HARNESS の「CI ゲートで落とせる」ルールを一括検査する umbrella。
  *
  * 現状の決定的チェック:
- *   - check-migrations     (HARNESS §2.3 / RULE.md §2)
- *   - check-personal-data  (HARNESS §2.3 / RULE.md §5)
+ *   - check-migrations       (HARNESS §2.3 / RULE.md §2)
+ *   - check-personal-data    (HARNESS §2.3 / RULE.md §5)
+ *   - check-spec-structure   (HARNESS §2.3 / FORMAT_SPEC.md §1)
  *
  * いずれか 1 つでも違反すれば exit 1。CI の 1 ステップから呼ぶ。
  *
@@ -12,7 +13,7 @@
  *   node harness-check.mjs [repoDir]   # 既定は cwd
  *   node harness-check.mjs --json
  *
- * 個別実行したい場合は check-migrations.mjs / check-personal-data.mjs を直接呼ぶ。
+ * 個別実行したい場合は check-*.mjs を直接呼ぶ。
  */
 
 import { spawnSync } from "node:child_process";
@@ -27,6 +28,7 @@ const passthru = args.filter((a) => a.startsWith("--"));
 const CHECKS = [
   { name: "migrations", script: "check-migrations.mjs" },
   { name: "personal-data", script: "check-personal-data.mjs" },
+  { name: "spec-structure", script: "check-spec-structure.mjs" },
 ];
 
 let failed = 0;

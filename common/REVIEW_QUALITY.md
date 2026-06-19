@@ -87,6 +87,8 @@ unit / integration / E2E のレベル別にテストの有無と実効性を評�
 - [ ] サンプルコード / examples がビルド可能で陳腐化していないか
 - [ ] ドキュメントが実装と乖離していないか (CI で doc test / lint を回しているか)
 - [ ] `spec/` が [`FORMAT_SPEC.md`](../FORMAT_SPEC.md) の 6 分類 (data/feature/interface/plan/setup/test) に整理されているか
+      — 構造違反 (非正規フォルダ `usage/` 等・分類外ファイル・`spec/data/` を巻き込む無アンカー `.gitignore data/`) は
+      [`scripts/check-spec-structure.mjs`](../scripts/check-spec-structure.mjs) が CI で決定的に落とす。レビューでは下記の **充実度 (該当性の判断)** に注力する
 - [ ] **ドキュメント充実度**: `plan` を除く 5 分類が、そのプロジェクトに該当する範囲をカバーしているか (DB があるのに `data/` が無い等は不充実)
 - [ ] `feature/` が 1 機能 1 ファイルで主要機能を網羅しているか
 

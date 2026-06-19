@@ -9,6 +9,7 @@
 |-----------|-----------|------|
 | `check-migrations.mjs` | HARNESS §2.3 / RULE.md §2 | `migrations/**/*.sql` の `DROP TABLE` / `DROP COLUMN` / `ALTER ... TYPE` / 番号重複 |
 | `check-personal-data.mjs` | HARNESS §2.3 / RULE.md §5 | schema/migration SQL の個人データ列 (email/display_name/password_hash/token 等)。汎用語の `name`/`role` は誤検出源のため対象外。FK の `*_id` は許可 |
+| `check-spec-structure.mjs` | HARNESS §2.3 / FORMAT_SPEC.md §1 | `spec/` 直下の非正規分類フォルダ (`usage/` 等) / 分類外ファイル / `spec/data/` を巻き込む無アンカー `.gitignore data/` を検出。**分類の欠落 (充実度) は該当性の判断を伴うため落とさない** (レビュー領分) |
 | `harness-check.mjs` | 上記の umbrella | 全チェックを一括実行。1 件でも違反で exit 1 |
 
 ## ローカル実行
@@ -58,6 +59,29 @@ jobs:
 ```
 
 Cernere 自身は個人データの正本のため自動でスキップされる。
+
+## 新規リポの spec/ 雛形 (scaffold-spec)
+
+`check-spec-structure` が「構造の番人」なら、`scaffold-spec.mjs` は「最初に正しい形を撒く」側。
+新規リポを作ったら一度走らせると、FORMAT_SPEC.md 準拠の spec/ 雛形と正しい `.gitignore` が入る。
+
+```bash
+node /path/to/AIFormat/scripts/scaffold-spec.mjs .        # spec/ 雛形を撒く
+node /path/to/AIFormat/scripts/scaffold-spec.mjs . --dry  # 予定だけ表示
+```
+
+やること (すべて冪等・既存ファイルは温存):
+
+- `spec/{data,feature,interface,setup,test}/README.md` に分類ガイドを置く
+  (`plan/` は実装の都度作る作業ドキュメントなので雛形には含めない)
+- `spec/README.md` に索引を置く
+- `.gitignore` の無アンカー `data/` を `/data/` にアンカー
+  (これをしないと `spec/data/*` が silently untracked になる。2026-06-19 に
+  Ostiarius / EducationLab / Canalis で実害)
+
+> 背景: 2026-06-19 の新規 6 リポ (Lapilli/Anatomia/Ostiarius/Fundamentum/EducationLab/Canalis)
+> 全件で「DESIGN.md は厚いのに spec/ 分類に落ちていない」穴が出た。設計を書く力ではなく
+> **最初の形** が欠けていたので、雛形 (scaffold) と番人 (check) の両輪で塞ぐ。
 
 ## 設計メモ
 
