@@ -185,6 +185,14 @@ LUDIARS のリポジトリで**作業を始める前に最初に読む**文書�
   落とす(撤去条件は GitHub Issue で tracker 化)。→ スキル `verbose-logging-bootstrap`。
 - LLM コスト等の横断計装は集約ハブ(Anatomia)へ送る。「動いたか」だけでなく
   「いくらかかったか / どこで詰まったか」を残せる状態にしておく。
+- **エラーは握りつぶさない(必ず出力 / 致命は fail-fast)。** `catch {}` /
+  `.catch(() => {})` / 「best-effort」で例外を黙って飲むのは厳禁。**致命**(待受不可・
+  続行不能)は `[fatal]` を出して即停止(`uncaughtException`/`unhandledRejection` も
+  必ず出力して落とす)、**致命でない後始末**の失敗も `console.warn/error` で必ず観測可能に
+  する。バッチ/CLI は各ステップをログファイルに残し、失敗時は「どのステップが / なぜ」を
+  画面に出す(`errorlevel 1` だけで終わらせない)。無言フォールバック(設定不備で
+  stub/no-op へ)は別途禁止(§1 / [`RULE_CODE.md`](./RULE_CODE.md) §7.1)。→ メモリ
+  `feedback_no_error_swallow` / `feedback_no_silent_fallback`。
 
 ### 3.8 委譲とモデル適性
 
