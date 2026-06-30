@@ -29,8 +29,8 @@ const args = process.argv.slice(2);
 const JSON_OUT = args.includes("--json");
 const repoDir = args.find((a) => !a.startsWith("--")) || process.cwd();
 
-// FORMAT_SPEC.md §1 の 6 分類。plan は作業ドキュメントだが「置いてよい」分類。
-const CANONICAL = new Set(["data", "feature", "interface", "plan", "setup", "test"]);
+// FORMAT_SPEC.md §1 の 7 分類。plan は作業ドキュメント、faq は調査・Q&A 蓄積。
+const CANONICAL = new Set(["data", "faq", "feature", "interface", "plan", "setup", "test"]);
 // spec/ 直下の索引ファイルは現実的に許容する (分類外ドキュメントではなくナビ)。
 const ALLOWED_ROOT_FILES = new Set(["readme.md", "index.md"]);
 // 充実度の評価対象 (plan を除く 5 分類)。欠落は「情報」止まり。
