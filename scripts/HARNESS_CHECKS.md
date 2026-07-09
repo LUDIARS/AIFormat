@@ -10,7 +10,7 @@
 | `check-migrations.mjs` | HARNESS §2.3 / RULE.md §2 | `migrations/**/*.sql` の `DROP TABLE` / `DROP COLUMN` / `ALTER ... TYPE` / 番号重複 |
 | `check-personal-data.mjs` | HARNESS §2.3 / RULE.md §5 | schema/migration SQL の個人データ列 (email/display_name/password_hash/token 等)。汎用語の `name`/`role` は誤検出源のため対象外。FK の `*_id` は許可 |
 | `check-spec-structure.mjs` | HARNESS §2.3 / FORMAT_SPEC.md §1 | `spec/` 直下の非正規分類フォルダ (`usage/` 等) / 分類外ファイル / `spec/data/` を巻き込む無アンカー `.gitignore data/` を検出。**分類の欠落 (充実度) は該当性の判断を伴うため落とさない** (レビュー領分) |
-| `check-latest-json.mjs` | REVIEW.md 成果物の配置と latest.json | `review/<YYYY-MM-DD>/latest.json` のスキーマ (必須フィールド / style・評価値の値域 / date とディレクトリ名の一致 / 件数の非負整数)。`format_version` >= 2 では **scores キーを `scores-keys.json` (正本) と順序込みで突合**する。2026-07-09 より前の成果物は legacy としてキー突合をスキップ。スタイル判定そのものの妥当性はレビュー領分 (prompt/REVIEW_FULL.md Phase 0) |
+| `check-latest-json.mjs` | REVIEW.md 成果物の配置と latest.json | `review/<YYYY-MM-DD>/latest.json` のスキーマ (必須フィールド / style・評価値の値域 / date とディレクトリ名の一致 / 件数の非負整数)。`format_version` >= 2 では **scores キーを `scores-keys.json` (正本) と順序込みで突合**する。2026-07-09 より前の日付ディレクトリは legacy として**検査対象外** (既存リポへの遡及適用で過去成果物を後から赤くしないため)。スタイル判定そのものの妥当性はレビュー領分 (prompt/REVIEW_FULL.md Phase 0) |
 | `harness-check.mjs` | 上記の umbrella | 全チェックを一括実行。1 件でも違反で exit 1 |
 
 > 新しい機械チェックの設計 (CI ゲート / Anatomia 計装の振り分け・検知ロジック・共通 IF) は

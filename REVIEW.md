@@ -205,7 +205,8 @@ A〜D に戻す。内訳（A〜D の件数）を併記する。
 - `critical_count` / `high_count` は全観点の指摘を重大度別に合計した値。
 - スキーマ（必須フィールド / 値域 / date とディレクトリ名の一致 / `format_version` >= 2 での
   scores キー突合）は [`scripts/check-latest-json.mjs`](scripts/check-latest-json.mjs) が CI で決定的に検査する。
-  2026-07-09 より前の成果物は legacy としてキー突合をスキップする。
+  2026-07-09 より前の日付ディレクトリは legacy として**検査対象外**（このチェッカーを既存リポに
+  遡及適用しても過去の成果物で CI が後から赤くならないようにするため）。
 
 ---
 

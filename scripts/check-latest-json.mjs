@@ -15,11 +15,13 @@
  *   - BAD_GRADE        weighted_score が A〜D 以外
  *   - BAD_SCORE        scores が空、または値が A〜D / null 以外
  *   - BAD_COUNT        *_count / autofix_categories の値が非負整数でない
- *   - MISSING_FIELD    format_version 無し (2026-07-09 以降の date のみ必須。旧成果物は legacy 扱い)
+ *   - MISSING_FIELD    format_version 無し (採用日以降は必須)
  *   - BAD_FORMAT_VERSION  format_version が 2 未満・非整数
  *   - SCORES_KEYS_MISMATCH  format_version >= 2 で、scores キーが scores-keys.json の
  *                       該当スタイルのキー列と (順序含め) 一致しない
  *
+ * 採用日 (SCHEMA_SINCE = 2026-07-09) より前の日付ディレクトリは legacy として
+ * **検査対象外** (遡及適用で既存リポの過去成果物を後から赤くしないため)。
  * scores キーの正本は scores-keys.json (スタイル総合評価表と同時更新)。これにより
  * 「観点キーの過不足」はスタイル判定済みの成果物に対して決定的に検査できる。
  * スタイル判定そのものの妥当性はレビュー領分 (prompt/REVIEW_FULL.md Phase 0)。
@@ -55,8 +57,11 @@ const REQUIRED = [
   "fix_pr",
 ];
 const DATE_DIR = /^\d{4}-\d{2}-\d{2}$/;
-// format_version (と scores キー突合) を必須にする採用日。これより古い成果物は legacy 扱い。
-const FORMAT_VERSION_SINCE = "2026-07-09";
+// スキーマ検査の採用日。これより前の日付ディレクトリは旧スキーマ時代の legacy として
+// **検査対象外**にする。理由: このチェッカーを既存リポに遡及適用すると、過去の
+// レビュー成果物 (style/repo 欠落・数値 weighted_score 等) で CI が後から赤くなる。
+// check-* は「新しく入るものを止める」ためのゲートであり、確定済みの履歴を裁かない。
+const SCHEMA_SINCE = "2026-07-09";
 
 function isDir(p) { try { return statSync(p).isDirectory(); } catch { return false; } }
 function isNonNegInt(v) { return Number.isInteger(v) && v >= 0; }
@@ -71,6 +76,7 @@ try {
 const reviewDir = join(repoDir, "review");
 const violations = [];
 const checked = [];
+const legacySkipped = [];
 
 if (!existsSync(reviewDir) || !isDir(reviewDir)) {
   if (JSON_OUT) console.log(JSON.stringify({ review: false, violations: [] }, null, 2));
@@ -84,6 +90,9 @@ for (const name of readdirSync(reviewDir)) {
 
   const file = join(dir, "latest.json");
   const rel = relative(repoDir, file).replace(/\\/g, "/");
+
+  // 採用日より前の成果物は legacy として検査対象外 (遡及適用で既存履歴を裁かない)。
+  if (name < SCHEMA_SINCE) { legacySkipped.push(rel); continue; }
   checked.push(rel);
 
   if (!existsSync(file)) {
@@ -122,11 +131,10 @@ for (const name of readdirSync(reviewDir)) {
     }
   }
 
-  // format_version: 採用日以降の成果物は必須。format_version >= 2 なら scores キーを正本と突合する。
+  // ここに来る成果物は採用日以降 (legacy はループ入口で除外済み) なので format_version 必須。
+  // format_version >= 2 なら scores キーを正本と突合する。
   if (!("format_version" in data)) {
-    if (typeof data.date === "string" && data.date >= FORMAT_VERSION_SINCE)
-      violations.push({ kind: "MISSING_FIELD", path: rel, msg: `必須フィールド 'format_version' が無い (${FORMAT_VERSION_SINCE} 以降のレビューは必須)` });
-    // 旧成果物は legacy としてキー突合をスキップ
+    violations.push({ kind: "MISSING_FIELD", path: rel, msg: `必須フィールド 'format_version' が無い (${SCHEMA_SINCE} 以降のレビューは必須)` });
   } else if (!Number.isInteger(data.format_version) || data.format_version < 2) {
     violations.push({ kind: "BAD_FORMAT_VERSION", path: rel, msg: `format_version '${data.format_version}' は 2 以上の整数にする` });
   } else if (SCORES_KEYS && STYLES.has(data.style) && data.scores && typeof data.scores === "object" && !Array.isArray(data.scores)) {
@@ -155,9 +163,13 @@ for (const name of readdirSync(reviewDir)) {
 }
 
 if (JSON_OUT) {
-  console.log(JSON.stringify({ review: true, checked, violations }, null, 2));
+  console.log(JSON.stringify({ review: true, checked, legacySkipped, violations }, null, 2));
 } else if (violations.length === 0) {
-  console.log(`check-latest-json: OK (${checked.length} 件検査)`);
+  console.log(
+    `check-latest-json: OK (${checked.length} 件検査` +
+      (legacySkipped.length ? ` / legacy ${legacySkipped.length} 件スキップ` : "") +
+      ")",
+  );
 } else {
   console.error(`check-latest-json: ${violations.length} 件の違反 (REVIEW.md「成果物の配置と latest.json」)`);
   for (const v of violations) console.error(`  ✗ ${v.path}: [${v.kind}] ${v.msg}`);
