@@ -1,6 +1,7 @@
 {
   "date": "2026-05-13",
   "repo": "LUDIARS/AIFormat",
+  "style": "common-only",
   "weighted_score": "B",
   "scores": {
     "vulnerability": "B",

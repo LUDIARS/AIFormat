@@ -6,6 +6,7 @@
  *   - check-migrations       (HARNESS §2.3 / RULE.md §2)
  *   - check-personal-data    (HARNESS §2.3 / RULE.md §5)
  *   - check-spec-structure   (HARNESS §2.3 / FORMAT_SPEC.md §1)
+ *   - check-latest-json      (REVIEW.md 成果物の配置と latest.json)
  *
  * いずれか 1 つでも違反すれば exit 1。CI の 1 ステップから呼ぶ。
  *
@@ -29,6 +30,7 @@ const CHECKS = [
   { name: "migrations", script: "check-migrations.mjs" },
   { name: "personal-data", script: "check-personal-data.mjs" },
   { name: "spec-structure", script: "check-spec-structure.mjs" },
+  { name: "latest-json", script: "check-latest-json.mjs" },
 ];
 
 let failed = 0;

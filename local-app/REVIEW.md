@@ -32,7 +32,7 @@
 | ドキュメント | 含まれるレビュー観点 |
 |------------|-------------------|
 | [センシティブ情報取扱いポリシーレビュー](REVIEW_PRIVACY_POLICY.md) | データ分類 / 保存・メモリ・送信時の保護 / 保持・削除 / コンプライアンス |
-| [ローカル脆弱性レビュー](REVIEW_VULNERABILITY_LOCAL.md) | ローカル攻撃面 / 権限・サンドボックス / IPC / アップデート完全性 |
+| [ローカル脆弱性レビュー](REVIEW_VULNERABILITY_LOCAL.md) | ローカル攻撃面 / 権限・サンドボックス / IPC・ローカルサーバ / アップデート・配布の完全性 / アンチタンパリング |
 | [ローカル実装評価](REVIEW_IMPLEMENTATION_LOCAL.md) | ローカルデータストア / バックアップ・移行 / 運用信頼性 |
 | [ローカル品質保証レビュー](REVIEW_QUALITY_LOCAL.md) | パフォーマンス / クロスプラットフォーム |
 
@@ -55,11 +55,17 @@
 | 11 | センシティブ情報取扱いポリシー | ローカル | A~D | | [ポリシーレビュー](REVIEW_PRIVACY_POLICY.md) |
 | 12 | ローカル攻撃面 | ローカル | A~D | | [ローカル脆弱性レビュー](REVIEW_VULNERABILITY_LOCAL.md) |
 | 13 | 権限・サンドボックス | ローカル | A~D | | [ローカル脆弱性レビュー](REVIEW_VULNERABILITY_LOCAL.md) |
-| 14 | アップデート完全性 | ローカル | A~D | | [ローカル脆弱性レビュー](REVIEW_VULNERABILITY_LOCAL.md) |
-| 15 | ローカルデータストア | ローカル | A~D | | [ローカル実装評価](REVIEW_IMPLEMENTATION_LOCAL.md) |
-| 16 | 運用信頼性 | ローカル | A~D | | [ローカル実装評価](REVIEW_IMPLEMENTATION_LOCAL.md) |
-| 17 | パフォーマンス | ローカル | A~D | | [ローカル品質保証レビュー](REVIEW_QUALITY_LOCAL.md) |
-| 18 | クロスプラットフォーム互換 | ローカル | A~D | | [ローカル品質保証レビュー](REVIEW_QUALITY_LOCAL.md) |
+| 14 | IPC・ローカルサーバ | ローカル | A~D | | [ローカル脆弱性レビュー](REVIEW_VULNERABILITY_LOCAL.md) |
+| 15 | アップデート・配布の完全性 | ローカル | A~D | | [ローカル脆弱性レビュー](REVIEW_VULNERABILITY_LOCAL.md) |
+| 16 | アンチタンパリング | ローカル | A~D | | [ローカル脆弱性レビュー](REVIEW_VULNERABILITY_LOCAL.md) |
+| 17 | ローカルデータストア | ローカル | A~D | | [ローカル実装評価](REVIEW_IMPLEMENTATION_LOCAL.md) |
+| 18 | バックアップ・移行 | ローカル | A~D | | [ローカル実装評価](REVIEW_IMPLEMENTATION_LOCAL.md) |
+| 19 | 運用信頼性 | ローカル | A~D | | [ローカル実装評価](REVIEW_IMPLEMENTATION_LOCAL.md) |
+| 20 | パフォーマンス | ローカル | A~D | | [ローカル品質保証レビュー](REVIEW_QUALITY_LOCAL.md) |
+| 21 | クロスプラットフォーム互換 | ローカル | A~D | | [ローカル品質保証レビュー](REVIEW_QUALITY_LOCAL.md) |
+
+> センシティブ情報取扱いポリシー (行 11) は、ポリシーレビュー内 8 観点の指摘を
+> まとめて最悪重大度から導出する**集約行**とする (8 観点の個別評価はドキュメント側で管理)。
 
 **評価基準**（重大度の定義・導出ルール・対象外の扱いは [REVIEW.md「評価の決定ルール」](../REVIEW.md#評価の決定ルール) を正本とする）:
 - **A**: 指摘 0 件。チェック項目をすべて満たす
