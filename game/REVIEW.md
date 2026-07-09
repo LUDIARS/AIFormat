@@ -29,8 +29,9 @@
 |------------|-------------------|
 | [設計レビュー](../common/REVIEW_DESIGN.md) | 設計強度 / 設計思想の一貫性 / モジュール分割度 |
 | [コード品質レビュー](../common/REVIEW_CODE_QUALITY.md) | コード品質 |
-| [脆弱性レビュー（共通）](../common/REVIEW_VULNERABILITY.md) | コードレベル脆弱性 |
+| [脆弱性レビュー（共通）](../common/REVIEW_VULNERABILITY.md) | コードレベル脆弱性 / CI/CD・サプライチェーン |
 | [品質保証レビュー](../common/REVIEW_QUALITY.md) | テスト戦略 / ライセンス遵守 / ドキュメント完備性 |
+| [AI 活用レビュー](../common/REVIEW_AI.md) | LLM 機能のセキュリティ / AI 生成コードの検収 |
 | [不足機能評価](../common/REVIEW_MISSING_FEATURES.md) | 機能改善 / 不足機能 |
 
 ### ゲーム固有
@@ -39,7 +40,7 @@
 |------------|-------------------|
 | [ゲーム脆弱性レビュー](REVIEW_VULNERABILITY_GAME.md) | クライアント信頼境界 / チート対策 / セーブ・課金保護 / マルチプレイ通信 |
 | [ゲーム実装評価](REVIEW_IMPLEMENTATION_GAME.md) | セーブデータ設計 / アセット・リソース管理 / データ駆動設計 |
-| [ゲーム品質保証レビュー](REVIEW_QUALITY_GAME.md) | ゲームパフォーマンス / プラットフォーム互換 |
+| [ゲーム品質保証レビュー](REVIEW_QUALITY_GAME.md) | ゲームパフォーマンス / プラットフォーム互換 / アクセシビリティ・ローカライズ |
 
 ---
 
@@ -52,22 +53,27 @@
 | 3 | モジュール分割度 | 共通 | A~D | | [設計レビュー](../common/REVIEW_DESIGN.md) |
 | 4 | コード品質 | 共通 | A~D | | [コード品質レビュー](../common/REVIEW_CODE_QUALITY.md) |
 | 5 | コードレベル脆弱性 | 共通 | A~D | | [脆弱性レビュー（共通）](../common/REVIEW_VULNERABILITY.md) |
-| 6 | テスト戦略・カバレッジ | 共通 | A~D | | [品質保証レビュー](../common/REVIEW_QUALITY.md) |
-| 7 | ライセンス遵守 | 共通 | A~D | | [品質保証レビュー](../common/REVIEW_QUALITY.md) |
-| 8 | ドキュメント完備性 | 共通 | A~D | | [品質保証レビュー](../common/REVIEW_QUALITY.md) |
-| 9 | 機能改善 | 共通 | - | | [不足機能評価](../common/REVIEW_MISSING_FEATURES.md) |
-| 10 | 不足機能 | 共通 | - | | [不足機能評価](../common/REVIEW_MISSING_FEATURES.md) |
-| 11 | クライアント信頼境界 | ゲーム | A~D | | [ゲーム脆弱性レビュー](REVIEW_VULNERABILITY_GAME.md) |
-| 12 | チート対策 | ゲーム | A~D | | [ゲーム脆弱性レビュー](REVIEW_VULNERABILITY_GAME.md) |
-| 13 | セーブ・課金保護 | ゲーム | A~D | | [ゲーム脆弱性レビュー](REVIEW_VULNERABILITY_GAME.md) |
-| 14 | マルチプレイ通信 | ゲーム | A~D | | [ゲーム脆弱性レビュー](REVIEW_VULNERABILITY_GAME.md) |
-| 15 | セーブデータ設計 | ゲーム | A~D | | [ゲーム実装評価](REVIEW_IMPLEMENTATION_GAME.md) |
-| 16 | アセット・リソース管理 | ゲーム | A~D | | [ゲーム実装評価](REVIEW_IMPLEMENTATION_GAME.md) |
-| 17 | データ駆動設計 | ゲーム | A~D | | [ゲーム実装評価](REVIEW_IMPLEMENTATION_GAME.md) |
-| 18 | ゲームパフォーマンス | ゲーム | A~D | | [ゲーム品質保証レビュー](REVIEW_QUALITY_GAME.md) |
-| 19 | プラットフォーム互換 | ゲーム | A~D | | [ゲーム品質保証レビュー](REVIEW_QUALITY_GAME.md) |
+| 6 | CI/CD・サプライチェーン | 共通 | A~D | | [脆弱性レビュー（共通）](../common/REVIEW_VULNERABILITY.md) |
+| 7 | テスト戦略・カバレッジ | 共通 | A~D | | [品質保証レビュー](../common/REVIEW_QUALITY.md) |
+| 8 | ライセンス遵守 | 共通 | A~D | | [品質保証レビュー](../common/REVIEW_QUALITY.md) |
+| 9 | ドキュメント完備性 | 共通 | A~D | | [品質保証レビュー](../common/REVIEW_QUALITY.md) |
+| 10 | LLM 機能のセキュリティ | 共通 | A~D / 対象外 | | [AI 活用レビュー](../common/REVIEW_AI.md) |
+| 11 | AI 生成コードの検収 | 共通 | A~D | | [AI 活用レビュー](../common/REVIEW_AI.md) |
+| 12 | 機能改善 | 共通 | - | | [不足機能評価](../common/REVIEW_MISSING_FEATURES.md) |
+| 13 | 不足機能 | 共通 | - | | [不足機能評価](../common/REVIEW_MISSING_FEATURES.md) |
+| 14 | クライアント信頼境界 | ゲーム | A~D | | [ゲーム脆弱性レビュー](REVIEW_VULNERABILITY_GAME.md) |
+| 15 | チート対策 | ゲーム | A~D | | [ゲーム脆弱性レビュー](REVIEW_VULNERABILITY_GAME.md) |
+| 16 | セーブ・課金保護 | ゲーム | A~D | | [ゲーム脆弱性レビュー](REVIEW_VULNERABILITY_GAME.md) |
+| 17 | マルチプレイ通信 | ゲーム | A~D | | [ゲーム脆弱性レビュー](REVIEW_VULNERABILITY_GAME.md) |
+| 18 | セーブデータ設計 | ゲーム | A~D | | [ゲーム実装評価](REVIEW_IMPLEMENTATION_GAME.md) |
+| 19 | アセット・リソース管理 | ゲーム | A~D | | [ゲーム実装評価](REVIEW_IMPLEMENTATION_GAME.md) |
+| 20 | データ駆動設計 | ゲーム | A~D | | [ゲーム実装評価](REVIEW_IMPLEMENTATION_GAME.md) |
+| 21 | ゲームパフォーマンス | ゲーム | A~D | | [ゲーム品質保証レビュー](REVIEW_QUALITY_GAME.md) |
+| 22 | プラットフォーム互換 | ゲーム | A~D | | [ゲーム品質保証レビュー](REVIEW_QUALITY_GAME.md) |
+| 23 | アクセシビリティ・ローカライズ | ゲーム | A~D | | [ゲーム品質保証レビュー](REVIEW_QUALITY_GAME.md) |
 
-> マルチプレイ通信はオンライン要素がない場合は「対象外」とする。
+> マルチプレイ通信 (行 17) はオンライン要素がない場合、LLM 機能のセキュリティ (行 10) は
+> LLM 機能が無い場合に「対象外」とする。
 
 **評価基準**（重大度の定義・導出ルール・対象外の扱いは [REVIEW.md「評価の決定ルール」](../REVIEW.md#評価の決定ルール) を正本とする）:
 - **A**: 指摘 0 件。チェック項目をすべて満たす

@@ -18,7 +18,7 @@
  *
  * scores のキーがスタイルの総合評価表と一致するか (観点の過不足) は、スタイル判定
  * という**該当性の判断**を伴うためここでは落とさない。それはレビュー領分
- * (REVIEW_PROMPT.md Phase 5 の整合検査)。
+ * (prompt/REVIEW_FULL.md Phase 5 の整合検査)。
  *
  * Usage:
  *   node check-latest-json.mjs [repoDir]   # 既定は cwd

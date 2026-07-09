@@ -10,8 +10,11 @@
 | `check-migrations.mjs` | HARNESS §2.3 / RULE.md §2 | `migrations/**/*.sql` の `DROP TABLE` / `DROP COLUMN` / `ALTER ... TYPE` / 番号重複 |
 | `check-personal-data.mjs` | HARNESS §2.3 / RULE.md §5 | schema/migration SQL の個人データ列 (email/display_name/password_hash/token 等)。汎用語の `name`/`role` は誤検出源のため対象外。FK の `*_id` は許可 |
 | `check-spec-structure.mjs` | HARNESS §2.3 / FORMAT_SPEC.md §1 | `spec/` 直下の非正規分類フォルダ (`usage/` 等) / 分類外ファイル / `spec/data/` を巻き込む無アンカー `.gitignore data/` を検出。**分類の欠落 (充実度) は該当性の判断を伴うため落とさない** (レビュー領分) |
-| `check-latest-json.mjs` | REVIEW.md 成果物の配置と latest.json | `review/<YYYY-MM-DD>/latest.json` のスキーマ (必須フィールド / style・評価値の値域 / date とディレクトリ名の一致 / 件数の非負整数)。**scores キーとスタイル総合評価表の突合はスタイル判定を伴うため落とさない** (レビュー領分 — REVIEW_PROMPT.md Phase 5) |
+| `check-latest-json.mjs` | REVIEW.md 成果物の配置と latest.json | `review/<YYYY-MM-DD>/latest.json` のスキーマ (必須フィールド / style・評価値の値域 / date とディレクトリ名の一致 / 件数の非負整数)。**scores キーとスタイル総合評価表の突合はスタイル判定を伴うため落とさない** (レビュー領分 — prompt/REVIEW_FULL.md Phase 5) |
 | `harness-check.mjs` | 上記の umbrella | 全チェックを一括実行。1 件でも違反で exit 1 |
+
+> 新しい機械チェックの設計 (CI ゲート / Anatomia 計装の振り分け・検知ロジック・共通 IF) は
+> [`script_design/`](../script_design/) にまとめる。実装済みになったらここへ移記する。
 
 ## ローカル実行
 
