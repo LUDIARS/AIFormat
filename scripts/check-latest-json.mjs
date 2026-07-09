@@ -15,10 +15,14 @@
  *   - BAD_GRADE        weighted_score が A〜D 以外
  *   - BAD_SCORE        scores が空、または値が A〜D / null 以外
  *   - BAD_COUNT        *_count / autofix_categories の値が非負整数でない
+ *   - MISSING_FIELD    format_version 無し (2026-07-09 以降の date のみ必須。旧成果物は legacy 扱い)
+ *   - BAD_FORMAT_VERSION  format_version が 2 未満・非整数
+ *   - SCORES_KEYS_MISMATCH  format_version >= 2 で、scores キーが scores-keys.json の
+ *                       該当スタイルのキー列と (順序含め) 一致しない
  *
- * scores のキーがスタイルの総合評価表と一致するか (観点の過不足) は、スタイル判定
- * という**該当性の判断**を伴うためここでは落とさない。それはレビュー領分
- * (prompt/REVIEW_FULL.md Phase 5 の整合検査)。
+ * scores キーの正本は scores-keys.json (スタイル総合評価表と同時更新)。これにより
+ * 「観点キーの過不足」はスタイル判定済みの成果物に対して決定的に検査できる。
+ * スタイル判定そのものの妥当性はレビュー領分 (prompt/REVIEW_FULL.md Phase 0)。
  *
  * Usage:
  *   node check-latest-json.mjs [repoDir]   # 既定は cwd
@@ -28,8 +32,10 @@
  */
 
 import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join, relative, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
+const here = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
 const JSON_OUT = args.includes("--json");
 const repoDir = args.find((a) => !a.startsWith("--")) || process.cwd();
@@ -49,9 +55,18 @@ const REQUIRED = [
   "fix_pr",
 ];
 const DATE_DIR = /^\d{4}-\d{2}-\d{2}$/;
+// format_version (と scores キー突合) を必須にする採用日。これより古い成果物は legacy 扱い。
+const FORMAT_VERSION_SINCE = "2026-07-09";
 
 function isDir(p) { try { return statSync(p).isDirectory(); } catch { return false; } }
 function isNonNegInt(v) { return Number.isInteger(v) && v >= 0; }
+
+let SCORES_KEYS = null;
+try {
+  SCORES_KEYS = JSON.parse(readFileSync(join(here, "scores-keys.json"), "utf8"));
+} catch {
+  SCORES_KEYS = null; // 正本が無い環境ではキー突合をスキップ (他チェックは実施)
+}
 
 const reviewDir = join(repoDir, "review");
 const violations = [];
@@ -104,6 +119,28 @@ for (const name of readdirSync(reviewDir)) {
       for (const [k, v] of Object.entries(data.scores))
         if (v !== null && !GRADES.has(v))
           violations.push({ kind: "BAD_SCORE", path: rel, msg: `scores.${k} = '${v}' は A〜D または null (対象外) にする` });
+    }
+  }
+
+  // format_version: 採用日以降の成果物は必須。format_version >= 2 なら scores キーを正本と突合する。
+  if (!("format_version" in data)) {
+    if (typeof data.date === "string" && data.date >= FORMAT_VERSION_SINCE)
+      violations.push({ kind: "MISSING_FIELD", path: rel, msg: `必須フィールド 'format_version' が無い (${FORMAT_VERSION_SINCE} 以降のレビューは必須)` });
+    // 旧成果物は legacy としてキー突合をスキップ
+  } else if (!Number.isInteger(data.format_version) || data.format_version < 2) {
+    violations.push({ kind: "BAD_FORMAT_VERSION", path: rel, msg: `format_version '${data.format_version}' は 2 以上の整数にする` });
+  } else if (SCORES_KEYS && STYLES.has(data.style) && data.scores && typeof data.scores === "object" && !Array.isArray(data.scores)) {
+    const canonical = SCORES_KEYS.styles?.[data.style];
+    if (Array.isArray(canonical)) {
+      const actual = Object.keys(data.scores);
+      const mismatch =
+        actual.length !== canonical.length || canonical.some((k, i) => actual[i] !== k);
+      if (mismatch)
+        violations.push({
+          kind: "SCORES_KEYS_MISMATCH",
+          path: rel,
+          msg: `scores キーが scores-keys.json の '${data.style}' (${canonical.length} 観点・順序込み) と不一致`,
+        });
     }
   }
 

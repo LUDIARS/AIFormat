@@ -55,14 +55,18 @@ HARNESS の原則「強制できるものは記憶に頼らない」をレビュ
 
 ### 設計 (本フォルダ。実装は Anatomia 側)
 
-| 設計 | 区分 | 対応レビュー観点 |
-|------|------|----------------|
-| [`CI_SECURITY.md`](./CI_SECURITY.md) | CI ゲート | 脆弱性(共通) §2 CI/CD・サプライチェーン |
-| [`SECRET_HISTORY.md`](./SECRET_HISTORY.md) | ゲート + 計装の 2 段 | 脆弱性(共通) §1 ハードコードシークレット / §2 履歴スキャン |
-| [`SPEC_GAPS.md`](./SPEC_GAPS.md) | Anatomia 計装 | 品質保証(共通) §3 ドキュメント充実度 / [`prompt/SPEC_GAP.md`](../prompt/SPEC_GAP.md) Phase A・B |
-| [`CODE_HYGIENE.md`](./CODE_HYGIENE.md) | Anatomia 計装 | コード品質 (RULE_CODE §7/§15/§19/§20 のシグナル) |
-| [`LICENSE_COMPLIANCE.md`](./LICENSE_COMPLIANCE.md) | CI ゲート (方針ファイル併用) | 品質保証(共通) §2 ライセンス遵守 |
-| [`DEP_AUDIT.md`](./DEP_AUDIT.md) | Anatomia 計装 (日次) | 脆弱性(共通) §1 依存 CVE |
+| 設計 | 実装優先度 | 区分 | 対応レビュー観点 |
+|------|-----------|------|----------------|
+| [`SPEC_GAPS.md`](./SPEC_GAPS.md) | **P1** | Anatomia 計装 | 品質保証(共通) §3 ドキュメント充実度 / [`prompt/SPEC_GAP.md`](../prompt/SPEC_GAP.md) Phase A・B |
+| [`CI_SECURITY.md`](./CI_SECURITY.md) | P2 | CI ゲート | 脆弱性(共通) §2 CI/CD・サプライチェーン |
+| [`SECRET_HISTORY.md`](./SECRET_HISTORY.md) | P3 | ゲート + 計装の 2 段 | 脆弱性(共通) §1 ハードコードシークレット / §2 履歴スキャン |
+| [`LICENSE_COMPLIANCE.md`](./LICENSE_COMPLIANCE.md) | P4 | CI ゲート (方針ファイル併用) | 品質保証(共通) §2 ライセンス遵守 |
+| [`DEP_AUDIT.md`](./DEP_AUDIT.md) | P5 | Anatomia 計装 (日次) | 脆弱性(共通) §1 依存 CVE |
+| [`CODE_HYGIENE.md`](./CODE_HYGIENE.md) | P6 | Anatomia 計装 | コード品質 (RULE_CODE §7/§15/§19/§20 のシグナル) |
+
+> 優先度の根拠: SPEC_GAPS は SPEC_GAP プロンプトの検知品質がシグナル網羅性に直接依存する
+> ため先頭。次にゲート化で即マージ阻止の効く CI_SECURITY / SECRET_HISTORY (Tier 1)。
+> LICENSE / DEP_AUDIT / CODE_HYGIENE は既存レビューで代替が効くため後段。
 
 ### スクリプト化しない (レビュー領分に残す)
 
