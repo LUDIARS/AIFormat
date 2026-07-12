@@ -102,10 +102,14 @@ LUDIARS のリポジトリで**作業を始める前に最初に読む**文書�
 
 ### 2.4 ドキュメントの置き場所(spec/)
 
-- 設計仕様はルート `spec/` の **6 分類**
-  (`data` / `feature` / `interface` / `plan` / `setup` / `test`)に必ず格納する
-  ([`FORMAT_SPEC.md`](./FORMAT_SPEC.md))。`plan/` 以外の 5 分類は
-  「あってしかるべき」常設ドキュメント。
+- 設計仕様はルート `spec/` の **8 分類**
+  (`data` / `faq` / `feature` / `interface` / `knowledge` / `plan` / `setup` / `test`)に
+  必ず格納する([`FORMAT_SPEC.md`](./FORMAT_SPEC.md))。`plan/`・`faq/`・`knowledge/`
+  以外の 5 分類は「あってしかるべき」常設ドキュメント。
+- **発生した問題・障害の記録は `spec/knowledge/problems/` に蓄積する**
+  (1 問題 1 ファイル。症状・原因・解決策・再発防止 —
+  [`FORMAT_SPEC.md`](./FORMAT_SPEC.md) §7)。`knowledge/` 直下にはファイルを置かず
+  種別サブフォルダへ(CI が検査)。
 - 実装に入る前に、第 I 部の 3 点(採用アーキ・目的と重視点・設計判断)を
   `spec/` に宣言してから書く([`RULE_CODE.md`](./RULE_CODE.md) 第 I 部)。
 
@@ -247,7 +251,7 @@ LUDIARS のリポジトリで**作業を始める前に最初に読む**文書�
 | データスキーマ | [`RULE_DATA_SCHEMA.md`](./RULE_DATA_SCHEMA.md) |
 | テスト | [`RULE_TEST.md`](./RULE_TEST.md) |
 | SRE・運用 | [`RULE_SRE.md`](./RULE_SRE.md) |
-| spec 記法(6 分類) | [`FORMAT_SPEC.md`](./FORMAT_SPEC.md) |
+| spec 記法(8 分類) | [`FORMAT_SPEC.md`](./FORMAT_SPEC.md) |
 | 認証記法 | [`FORMAT_AUTH.md`](./FORMAT_AUTH.md) |
 | レビュー(見るとき) | [`REVIEW.md`](./REVIEW.md) |
 

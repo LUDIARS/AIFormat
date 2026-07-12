@@ -3,13 +3,15 @@
  * check-spec-structure — spec/ の構造規約を決定的に検査する CI ゲート
  * (HARNESS §2.3 / FORMAT_SPEC.md §1)
  *
- * FORMAT_SPEC.md が定める「spec/ は 6 分類フォルダのみ・直下に分類外を置かない」
+ * FORMAT_SPEC.md が定める「spec/ は 8 分類フォルダのみ・直下に分類外を置かない」
  * を機械が落とす。判断を挟まず確実に違反といえるものだけを exit 1 にする:
  *
- *   - NONCANONICAL_DIR  spec/ 直下に 6 分類以外のフォルダ (例: spec/usage/)
- *   - STRAY_FILE        spec/ 直下に分類フォルダ外のファイル (README/index 索引は許容)
- *   - GITIGNORE_DATA    spec/data/ があるのに .gitignore の無アンカー `data/` が
- *                       それを無視している (spec/data/* が silently untracked になる)
+ *   - NONCANONICAL_DIR      spec/ 直下に 8 分類以外のフォルダ (例: spec/usage/)
+ *   - STRAY_FILE            spec/ 直下に分類フォルダ外のファイル (README/index 索引は許容)
+ *   - KNOWLEDGE_STRAY_FILE  spec/knowledge/ 直下のファイル (README/index 索引は許容。
+ *                           FORMAT_SPEC §7: 種別サブフォルダ (problems/ 等) へ格納する)
+ *   - GITIGNORE_DATA        spec/data/ があるのに .gitignore の無アンカー `data/` が
+ *                           それを無視している (spec/data/* が silently untracked になる)
  *
  * 「該当する分類が揃っているか (ドキュメント充実度)」は **該当性の判断** を伴うため
  * ここでは落とさない。それは REVIEW_QUALITY §3 / レビューの領分 (HARNESS の判断系)。
@@ -29,11 +31,12 @@ const args = process.argv.slice(2);
 const JSON_OUT = args.includes("--json");
 const repoDir = args.find((a) => !a.startsWith("--")) || process.cwd();
 
-// FORMAT_SPEC.md §1 の 7 分類。plan は作業ドキュメント、faq は調査・Q&A 蓄積。
-const CANONICAL = new Set(["data", "faq", "feature", "interface", "plan", "setup", "test"]);
+// FORMAT_SPEC.md §1 の 8 分類。plan は作業ドキュメント、faq は調査・Q&A 蓄積、
+// knowledge は発生事実 (problems/ 等の種別サブフォルダ) の蓄積。
+const CANONICAL = new Set(["data", "faq", "feature", "interface", "knowledge", "plan", "setup", "test"]);
 // spec/ 直下の索引ファイルは現実的に許容する (分類外ドキュメントではなくナビ)。
 const ALLOWED_ROOT_FILES = new Set(["readme.md", "index.md"]);
-// 充実度の評価対象 (plan を除く 5 分類)。欠落は「情報」止まり。
+// 充実度の評価対象 (plan/faq/knowledge を除く 5 分類)。欠落は「情報」止まり。
 const EVALUATED = ["data", "feature", "interface", "setup", "test"];
 
 function isDir(p) { try { return statSync(p).isDirectory(); } catch { return false; } }
@@ -59,7 +62,7 @@ for (const name of entries) {
       violations.push({
         kind: "NONCANONICAL_DIR",
         path: relative(repoDir, p).replace(/\\/g, "/"),
-        msg: `spec/ 直下の非正規フォルダ '${name}/' (FORMAT_SPEC §1: 6 分類のみ)`,
+        msg: `spec/ 直下の非正規フォルダ '${name}/' (FORMAT_SPEC §1: 8 分類のみ)`,
       });
   } else {
     if (!ALLOWED_ROOT_FILES.has(name.toLowerCase()))
@@ -67,6 +70,21 @@ for (const name of entries) {
         kind: "STRAY_FILE",
         path: relative(repoDir, p).replace(/\\/g, "/"),
         msg: `spec/ 直下の分類外ファイル '${name}' (分類フォルダ配下へ移動)`,
+      });
+  }
+}
+
+// knowledge/ 直下は種別サブフォルダ (problems/ 等) のみ。直下のファイルは索引を除き違反
+// (FORMAT_SPEC §7)。サブフォルダ名の妥当性は FORMAT_SPEC への定義追記を伴うため落とさない。
+const knowledgeDir = join(specDir, "knowledge");
+if (isDir(knowledgeDir)) {
+  for (const name of readdirSync(knowledgeDir)) {
+    const p = join(knowledgeDir, name);
+    if (!isDir(p) && !ALLOWED_ROOT_FILES.has(name.toLowerCase()))
+      violations.push({
+        kind: "KNOWLEDGE_STRAY_FILE",
+        path: relative(repoDir, p).replace(/\\/g, "/"),
+        msg: `spec/knowledge/ 直下のファイル '${name}' (種別サブフォルダ problems/ 等へ移動)`,
       });
   }
 }

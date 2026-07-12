@@ -4,7 +4,7 @@
 (実装にあるのに spec が無い) と**陳腐化** (spec にあるのに実装に無い) を検知し、
 欠落分の spec を [`FORMAT_SPEC.md`](../FORMAT_SPEC.md) 準拠で自動生成するための実行プロンプト。
 
-- 記法・分類の正本: [`FORMAT_SPEC.md`](../FORMAT_SPEC.md) (7 分類・充実度の定義)
+- 記法・分類の正本: [`FORMAT_SPEC.md`](../FORMAT_SPEC.md) (8 分類・充実度の定義)
 - 充実度の評価先: [`common/REVIEW_QUALITY.md`](../common/REVIEW_QUALITY.md) §3 ドキュメント完備性
 - 生成 PR の運用: [`REVIEW.md`](../REVIEW.md)「自動修正ポリシー (AUTOFIX)」
 - 共通の設計原則: [`prompt/README.md`](./README.md)
@@ -36,7 +36,7 @@ spec 側の記載対象と**両方向で**突合する。シグナル → 候補
 | `setup` | `package.json` scripts / Dockerfile・compose / `.env.example`・環境変数参照 / CI workflow | 分類単位 (手順・env 一覧の網羅) |
 | `test` | テストディレクトリ / テストランナー設定 / CI のテストステップ | テスト種別単位 (RULE_TEST の種別) |
 
-`plan/` (作業ドキュメント) と `faq/` (随時追記型) は充実度対象外のため検知対象外。
+`plan/` (作業ドキュメント) と `faq/`・`knowledge/` (随時追記型) は充実度対象外のため検知対象外。
 
 ---
 

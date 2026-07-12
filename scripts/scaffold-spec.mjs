@@ -7,7 +7,8 @@
  *
  * やること (すべて冪等。既存ファイルは上書きしない):
  *   1. spec/{data,feature,interface,setup,test}/ に分類の README 雛形を作る
- *      (plan/ は作業ドキュメントなので必要時に手で作る → 雛形は撒かない)
+ *      (plan/ は作業ドキュメント、faq/・knowledge/ は随時追記型なので
+ *       必要時に手で作る → 雛形は撒かない)
  *   2. spec/README.md に索引を置く
  *   3. .gitignore の無アンカー `data/` を `/data/` にアンカー (spec/data/ を守る)
  *
@@ -62,8 +63,9 @@ REST/WebSocket/gRPC/IPC/CLI のエンドポイント (メソッド・パス・re
 
 const INDEX = `# spec/
 
-このリポジトリの設計仕様。FORMAT_SPEC.md の 6 分類で管理する
-(\`plan/\` は実装の都度作る作業ドキュメントなので雛形には含めない)。
+このリポジトリの設計仕様。FORMAT_SPEC.md の 8 分類で管理する
+(\`plan/\` は実装の都度作る作業ドキュメント、\`faq/\`・\`knowledge/\` は随時追記型
+なので雛形には含めない。発生した問題は \`knowledge/problems/\` に蓄積する)。
 
 - [data/](./data/) — データスキーマ
 - [feature/](./feature/) — 機能概要 (1 機能 1 ファイル)

@@ -32,5 +32,5 @@ LUDIARS 全リポジトリ共通の設計ルール・レビューフォーマッ
 
 ## フォーマット
 
-- [`FORMAT_SPEC.md`](./FORMAT_SPEC.md) — 仕様書記法 (spec/ を data/feature/interface/plan/setup/test の 6 分類に整理 + ドキュメント充実度)
+- [`FORMAT_SPEC.md`](./FORMAT_SPEC.md) — 仕様書記法 (spec/ を data/faq/feature/interface/knowledge/plan/setup/test の 8 分類に整理 + ドキュメント充実度)
 - [`FORMAT_AUTH.md`](./FORMAT_AUTH.md) — 認証記法
