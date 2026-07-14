@@ -2,6 +2,24 @@
 
 LUDIARS の全プロジェクトは本ルールに従い技術を選定する。
 
+## 共通実行環境のバージョン
+
+すべてのプロジェクトは、開発・CI・本番で利用するランタイム、コンパイラ、
+パッケージマネージャー、データベースなどの環境バージョンを `spec/setup/` に明記する。
+バージョンを省略したコンテナタグ (`latest` 等) や、開発者のローカル環境へ暗黙に依存してはならない。
+
+| 環境 | LUDIARS 標準バージョン |
+|------|------------------------|
+| Node.js | **24.17.0 LTS** |
+
+Node.js を利用するプロジェクトは次の宣言を揃える。
+
+- `.node-version` に利用する正確なパッチバージョン (`24.17.0`) を記録する。
+- `package.json` の `engines.node` を `24.17.x` とする。
+- CI の `node-version` と Dockerfile の Node.js イメージを `.node-version` と一致させる。
+- Node.js 以外の環境も、該当する toolchain ファイルまたはコンテナタグへ正確なバージョンを固定し、
+  `spec/setup/` の記載と一致させる。
+
 ## 言語選定基準
 
 | 領域 | 言語 | 理由 |
@@ -21,7 +39,7 @@ LUDIARS の全プロジェクトは本ルールに従い技術を選定する。
 | セッション / キャッシュ | Redis (ioredis) |
 | 認証 | jsonwebtoken + bcryptjs |
 | バリデーション | Zod |
-| ランタイム | Node.js 22+ |
+| ランタイム | Node.js 24.17.0 LTS |
 
 ## フロントエンド (Web)
 
@@ -135,6 +153,24 @@ npm run env:up:standalone:dev  # All-in-One 開発 (DB 内蔵 + ホットリロ�
 ## npm scripts クロスプラットフォームルール
 
 npm scripts は Windows (cmd.exe) と Linux/macOS (bash) の両方で動作する記法を使用する。
+
+### 依存パッケージの脆弱性修正
+
+すべての npm プロジェクトは、非破壊範囲の既知脆弱性を修正する共通スクリプトを持つ。
+
+```json
+{
+  "scripts": {
+    "audit:fix": "npm audit fix --ignore-scripts"
+  }
+}
+```
+
+- 通常の修正では `npm run audit:fix` を使用し、`package-lock.json` の差分と残存脆弱性を確認する。
+- `npm audit fix --force` はメジャーバージョン更新を含み得るため、影響確認とテストを行う場合だけ明示する。
+- ワークスペース横断の実行には Castra の `scripts/npm-audit-fix.mjs` を使用する。
+- CVE の定期検知と記録は [`script_design/DEP_AUDIT.md`](./script_design/DEP_AUDIT.md) の責務とし、
+  本スクリプトは検知結果の修正だけを担う。
 
 ### 禁止パターンと代替
 
