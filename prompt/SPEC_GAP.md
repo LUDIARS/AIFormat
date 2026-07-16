@@ -15,7 +15,7 @@
 
 | 層 | 何を検知するか | 担い手 |
 |----|--------------|--------|
-| 構造 | 非正規フォルダ / 分類外ファイル / `.gitignore` 罠 | [`check-spec-structure.mjs`](../scripts/check-spec-structure.mjs) (CI・決定的) |
+| 構造 | 標準5フォルダの欠落 warning / `.gitignore` 罠 | [`check-spec-structure.mjs`](../scripts/check-spec-structure.mjs) (CI・決定的) |
 | 該当性 | 「この実装ならこの spec があってしかるべき」の判断 | 本プロンプト Phase A〜C |
 | 生成 | 欠落 spec のドラフト生成と自己検証 | 本プロンプト Phase D〜E |
 

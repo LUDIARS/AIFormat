@@ -1,138 +1,95 @@
 #!/usr/bin/env node
 /**
- * check-spec-structure — spec/ の構造規約を決定的に検査する CI ゲート
+ * check-spec-structure — spec/ の最低限の構造事故を検査する CI ゲート
  * (HARNESS §2.3 / FORMAT_SPEC.md §1)
  *
- * FORMAT_SPEC.md が定める「spec/ は 8 分類フォルダのみ・直下に分類外を置かない」
- * を機械が落とす。判断を挟まず確実に違反といえるものだけを exit 1 にする:
+ * spec/ の分類は拡張可能とし、未知フォルダ・直下ファイルを拒否しない。
+ * 標準 5 フォルダの欠落は warning に留め、CI を失敗させない。
+ * 決定的な実害がある次のケースだけを exit 1 にする:
  *
- *   - NONCANONICAL_DIR      spec/ 直下に 8 分類以外のフォルダ (例: spec/usage/)
- *   - STRAY_FILE            spec/ 直下に分類フォルダ外のファイル (README/index 索引は許容)
- *   - KNOWLEDGE_STRAY_FILE  spec/knowledge/ 直下のファイル (README/index 索引は許容。
- *                           FORMAT_SPEC §7: 種別サブフォルダ (problems/ 等) へ格納する)
- *   - GITIGNORE_DATA        spec/data/ があるのに .gitignore の無アンカー `data/` が
- *                           それを無視している (spec/data/* が silently untracked になる)
- *
- * 「該当する分類が揃っているか (ドキュメント充実度)」は **該当性の判断** を伴うため
- * ここでは落とさない。それは REVIEW_QUALITY §3 / レビューの領分 (HARNESS の判断系)。
- * 欠けている分類は情報として表示するだけ。
+ *   - GITIGNORE_DATA  spec/data/ があるのに .gitignore の無アンカー `data/` が
+ *                     それを無視している (spec/data/* が silently untracked になる)
  *
  * Usage:
  *   node check-spec-structure.mjs [repoDir]   # 既定は cwd
  *   node check-spec-structure.mjs --json
  *
- * exit: 0 = 問題なし(spec/ 不在も 0 扱い) / 1 = 違反あり
+ * exit: 0 = 問題なし (欠落 warning を含む) / 1 = 決定的な違反あり
  */
 
-import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
-import { join, relative } from "node:path";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
 
 const args = process.argv.slice(2);
 const JSON_OUT = args.includes("--json");
-const repoDir = args.find((a) => !a.startsWith("--")) || process.cwd();
+const repoDir = args.find((arg) => !arg.startsWith("--")) || process.cwd();
 
-// FORMAT_SPEC.md §1 の 8 分類。plan は作業ドキュメント、faq は調査・Q&A 蓄積、
-// knowledge は発生事実 (problems/ 等の種別サブフォルダ) の蓄積。
-const CANONICAL = new Set(["data", "faq", "feature", "interface", "knowledge", "plan", "setup", "test"]);
-// spec/ 直下の索引ファイルは現実的に許容する (分類外ドキュメントではなくナビ)。
-const ALLOWED_ROOT_FILES = new Set(["readme.md", "index.md"]);
-// 充実度の評価対象 (plan/faq/knowledge を除く 5 分類)。欠落は「情報」止まり。
-const EVALUATED = ["data", "feature", "interface", "setup", "test"];
+// FORMAT_SPEC.md §1 の標準分類のうち、常設を推奨する 5 フォルダ。
+// 追加フォルダはプロジェクト固有の正本として許可する。
+const REQUIRED_DIRS = ["data", "feature", "interface", "setup", "test"];
 
-function isDir(p) { try { return statSync(p).isDirectory(); } catch { return false; } }
-function safeRead(p) { try { return readFileSync(p, "utf8"); } catch { return ""; } }
+function isDir(path) {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function safeRead(path) {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return "";
+  }
+}
 
 const specDir = join(repoDir, "spec");
+const hasSpec = isDir(specDir);
+const present = hasSpec
+  ? readdirSync(specDir).filter((name) => isDir(join(specDir, name))).sort()
+  : [];
+const missing = REQUIRED_DIRS.filter((name) => !present.includes(name));
+const warnings = missing.map((name) => ({
+  kind: "MISSING_REQUIRED_DIR",
+  path: `spec/${name}`,
+  msg: `標準フォルダ spec/${name}/ が未配置 (warning only)`,
+}));
 const violations = [];
 
-if (!existsSync(specDir) || !isDir(specDir)) {
-  if (JSON_OUT) console.log(JSON.stringify({ spec: false, violations: [] }, null, 2));
-  else console.log("check-spec-structure: spec/ が無い (スキップ)");
-  process.exit(0);
-}
-
-const entries = readdirSync(specDir);
-const presentDirs = [];
-
-for (const name of entries) {
-  const p = join(specDir, name);
-  if (isDir(p)) {
-    if (CANONICAL.has(name)) presentDirs.push(name);
-    else
-      violations.push({
-        kind: "NONCANONICAL_DIR",
-        path: relative(repoDir, p).replace(/\\/g, "/"),
-        msg: `spec/ 直下の非正規フォルダ '${name}/' (FORMAT_SPEC §1: 8 分類のみ)`,
-      });
-  } else {
-    if (!ALLOWED_ROOT_FILES.has(name.toLowerCase()))
-      violations.push({
-        kind: "STRAY_FILE",
-        path: relative(repoDir, p).replace(/\\/g, "/"),
-        msg: `spec/ 直下の分類外ファイル '${name}' (分類フォルダ配下へ移動)`,
-      });
-  }
-}
-
-// knowledge/ 直下は種別サブフォルダ (problems/ 等) のみ。直下のファイルは索引を除き違反
-// (FORMAT_SPEC §7)。サブフォルダ名の妥当性は FORMAT_SPEC への定義追記を伴うため落とさない。
-const knowledgeDir = join(specDir, "knowledge");
-if (isDir(knowledgeDir)) {
-  for (const name of readdirSync(knowledgeDir)) {
-    const p = join(knowledgeDir, name);
-    if (!isDir(p) && !ALLOWED_ROOT_FILES.has(name.toLowerCase()))
-      violations.push({
-        kind: "KNOWLEDGE_STRAY_FILE",
-        path: relative(repoDir, p).replace(/\\/g, "/"),
-        msg: `spec/knowledge/ 直下のファイル '${name}' (種別サブフォルダ problems/ 等へ移動)`,
-      });
-  }
-}
-
 // .gitignore の無アンカー `data/` が spec/data/ を巻き込む罠を検出。
-const hasSpecData = existsSync(join(specDir, "data")) && isDir(join(specDir, "data"));
-if (hasSpecData) {
-  const gi = safeRead(join(repoDir, ".gitignore"));
-  const trap = gi
+if (isDir(join(specDir, "data"))) {
+  const gitignore = safeRead(join(repoDir, ".gitignore"));
+  const trapsSpecData = gitignore
     .split(/\r?\n/)
-    .map((l) => l.trim())
-    .some((l) => /^data\/?$/.test(l)); // 先頭スラッシュ無しの data / data/
-  if (trap)
+    .map((line) => line.trim())
+    .some((line) => /^data\/?$/.test(line));
+  if (trapsSpecData) {
     violations.push({
       kind: "GITIGNORE_DATA",
       path: ".gitignore",
       msg: "無アンカー `data/` が spec/data/ を無視 (→ `/data/` にアンカー)",
     });
+  }
 }
 
-const missing = EVALUATED.filter((c) => !presentDirs.includes(c));
-
 if (JSON_OUT) {
-  console.log(
-    JSON.stringify(
-      { spec: true, present: presentDirs.sort(), missing, violations },
-      null,
-      2,
-    ),
-  );
+  console.log(JSON.stringify({ spec: hasSpec, present, missing, warnings, violations }, null, 2));
 } else {
-  if (violations.length === 0)
-    console.log(
-      `check-spec-structure: OK (分類 ${presentDirs.sort().join("/") || "なし"}` +
-        (missing.length ? ` / 未配置: ${missing.join(",")}` : "") +
-        ")",
-    );
-  else {
-    console.error(
-      `check-spec-structure: ${violations.length} 件の違反 (FORMAT_SPEC §1)`,
-    );
-    for (const v of violations) console.error(`  ✗ ${v.path}: [${v.kind}] ${v.msg}`);
+  if (violations.length === 0) {
+    console.log(`check-spec-structure: OK (folders: ${present.join("/") || "none"})`);
+  } else {
+    console.error(`check-spec-structure: ${violations.length} 件の違反 (FORMAT_SPEC §1)`);
+    for (const violation of violations) {
+      console.error(`  ✗ ${violation.path}: [${violation.kind}] ${violation.msg}`);
+    }
   }
-  if (missing.length)
-    console.log(
-      `  i 未配置の分類: ${missing.join(", ")} ` +
-        "(該当するなら追加。該当性の判断はレビュー領分なので CI では落とさない)",
-    );
+  for (const warning of warnings) {
+    console.warn(`  ⚠ ${warning.path}: [${warning.kind}] ${warning.msg}`);
+    if (process.env.GITHUB_ACTIONS === "true") {
+      console.log(`::warning file=${warning.path}::${warning.msg}`);
+    }
+  }
 }
 
 process.exit(violations.length > 0 ? 1 : 0);

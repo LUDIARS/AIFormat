@@ -48,7 +48,7 @@ HARNESS の原則「強制できるものは記憶に頼らない」をレビュ
 |-----------|------|----------------|
 | `check-migrations.mjs` | CI ゲート | RULE.md §2 (DB マイグレーション) |
 | `check-personal-data.mjs` | CI ゲート | RULE.md §5 / Web 個人データ保護 §1 (Cernere 集約) |
-| `check-spec-structure.mjs` | CI ゲート | FORMAT_SPEC §1 (spec/ 構造) |
+| `check-spec-structure.mjs` | CI ゲート | FORMAT_SPEC §1 (標準フォルダ欠落 warning / data gitignore 事故) |
 | `check-latest-json.mjs` | CI ゲート | REVIEW.md (latest.json スキーマ) |
 | `env-leak-checker.mjs` | 計装 (手動起点) | 環境名・個人名の漏洩 |
 | `utf8bom.mjs` | 修正ツール | RULE_CODE §17 (エンコーディング) |
