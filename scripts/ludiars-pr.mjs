@@ -10,7 +10,9 @@ import { execSync } from "node:child_process";
 import { readdirSync, statSync, existsSync } from "node:fs";
 import { join, basename } from "node:path";
 
-const BASE_DIR = process.argv[2] || "<workspace-root>";
+import { resolveWorkspaceRoot } from "./lib/workspace-root.mjs";
+
+const BASE_DIR = resolveWorkspaceRoot(process.argv[2]);
 
 function isLudiarsRepo(dir) {
   try {

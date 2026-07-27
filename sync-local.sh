@@ -9,7 +9,7 @@
 #   ./sync-local.sh /path/to/target
 #
 # 想定構成:
-#   <workspace-root>\           ← 上位階層
+#   <workspace-root>/          ← 上位階層
 #   ├── AIFormat/              ← このスクリプトの場所
 #   ├── Cernere/               ← ターゲットプロジェクト
 #   ├── Schedula/

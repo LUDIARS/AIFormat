@@ -13,7 +13,9 @@ import { execSync } from "node:child_process";
 import { readdirSync, existsSync, statSync } from "node:fs";
 import { join, basename } from "node:path";
 
-const BASE_DIR = process.env.LUDIARS_BASE || "<workspace-root>";
+import { resolveWorkspaceRoot } from "./lib/workspace-root.mjs";
+
+const BASE_DIR = resolveWorkspaceRoot();
 
 const rawArgs = process.argv.slice(2);
 const SHOW_ALL = rawArgs.includes("--all");

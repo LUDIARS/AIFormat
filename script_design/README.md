@@ -4,6 +4,10 @@
 設計をまとめる。実装・定期実行・結果の蓄積は機械分析ハブ **Anatomia** に委ねる。
 本フォルダは「何を・どう判定し・何を判断系に残すか」の設計正本。
 
+運用ツールのうち、旧GitHub repositoryをprivate archiveとして残し、親を持たない
+clean snapshotで同名repositoryを再作成する手順は
+[`scripts/REPOSITORY_RESET.md`](../scripts/REPOSITORY_RESET.md) を正本とする。
+
 ## 3 区分 — どこで守るか
 
 HARNESS の原則「強制できるものは記憶に頼らない」をレビューにも適用し、

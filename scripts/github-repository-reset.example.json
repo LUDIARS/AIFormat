@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "repositories": [
+    {
+      "organization": "ExampleOrg",
+      "name": "ExampleRepo",
+      "local_path": "C:/workspace/ExampleRepo",
+      "archive_name": "ExampleRepo-archive-YYYYMMDD",
+      "clean_branch": "clean/repository-reset-YYYYMMDD",
+      "new_visibility": "public",
+      "archive_visibility": "private"
+    }
+  ]
+}

@@ -11,7 +11,7 @@
  *   --force      既に BOM 付きのファイルもスキップせず再書き込み
  *
  * Examples:
- *   node utf8bom.mjs <workspace-root>/Pictor
+ *   node utf8bom.mjs /path/to/project
  *   node utf8bom.mjs ./src --ext .cpp,.h,.hpp --dry-run
  */
 

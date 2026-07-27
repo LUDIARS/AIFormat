@@ -27,7 +27,9 @@ import { join, basename } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 
-const BASE_DIR = process.env.LUDIARS_BASE || "<workspace-root>";
+import { resolveWorkspaceRoot } from "./lib/workspace-root.mjs";
+
+const BASE_DIR = resolveWorkspaceRoot();
 const SHARED_PATH = join(BASE_DIR, ".env.shared.secrets");
 
 const args = process.argv.slice(2);
