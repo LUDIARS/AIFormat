@@ -38,6 +38,8 @@ test("renames, recreates, verifies, and archives through explicit API calls", ()
     { id: 20 },
     { id: 20 },
     { id: 10 },
+    { id: 20 },
+    { id: 10 },
     { id: 10 },
     { id: 20, default_branch: "main" },
     { id: 10, visibility: "private", archived: true },

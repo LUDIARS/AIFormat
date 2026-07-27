@@ -39,3 +39,18 @@ identifier while documenting the issue.
 - The replacement repository must have a distinct GitHub repository ID.
 - The archived backup must be private.
 - State and audit output must remain outside the repository.
+
+## Migration recovery verification
+
+The first replacement-main push was correctly stopped by the local direct-main
+push guard after the old repository had been renamed and the empty replacement
+had been created. The tool now:
+
+- sets the explicit main-push exception only for the initial replacement push;
+- supports a separate exact-confirmation `resume` command;
+- verifies the saved original repository ID against the renamed backup;
+- verifies the replacement has a different repository ID before resuming; and
+- never restarts the rename/create phase after a partial migration.
+
+The resumed migration pushed the prepared root without force, verified the new
+main ref, then made the renamed backup private and archived.

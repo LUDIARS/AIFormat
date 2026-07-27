@@ -61,6 +61,41 @@ export function migrateGitHubRepository(
     throw new Error("GitHub did not create a distinct replacement repository.");
   }
 
+  return finalizeGitHubRepository(repository, {
+    rootCommit,
+    originalRepositoryId: original.id,
+    replacementRepositoryId: created.id,
+    pushMain,
+    commandRunner,
+  });
+}
+
+export function finalizeGitHubRepository(
+  repository,
+  {
+    rootCommit,
+    originalRepositoryId,
+    replacementRepositoryId,
+    pushMain,
+    commandRunner = runCommand,
+  },
+) {
+  const replacementBefore = readGitHubRepository(
+    repository.nameWithOwner,
+    commandRunner,
+  );
+  const archiveBefore = readGitHubRepository(
+    `${repository.organization}/${repository.archiveName}`,
+    commandRunner,
+  );
+  if (
+    replacementBefore?.id !== replacementRepositoryId
+    || replacementBefore.id === originalRepositoryId
+    || archiveBefore?.id !== originalRepositoryId
+  ) {
+    throw new Error("Replacement/archive repository IDs do not match the saved migration state.");
+  }
+
   const repositoryUrl = `https://github.com/${repository.nameWithOwner}.git`;
   pushMain(repository.localPath, { commit: rootCommit, repositoryUrl });
 
@@ -95,7 +130,7 @@ export function migrateGitHubRepository(
     commandRunner,
   );
   if (
-    replacement?.id !== created.id
+    replacement?.id !== replacementRepositoryId
     || replacement.default_branch !== "main"
     || archive?.visibility?.toLocaleLowerCase() !== "private"
     || archive.archived !== true
@@ -104,7 +139,7 @@ export function migrateGitHubRepository(
   }
 
   return {
-    originalRepositoryId: original.id,
+    originalRepositoryId,
     replacementRepositoryId: replacement.id,
     archiveRepositoryId: archive.id,
     rootCommit,

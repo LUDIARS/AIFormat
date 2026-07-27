@@ -21,8 +21,10 @@ copied into the replacement.
 - Make the renamed backup private before archiving it.
 
 The migration phase changes external GitHub state and is not automatically
-rolled back after a partial API failure. Retain the external state file and
-inspect both repository names before retrying.
+rolled back after a partial API failure. Retain the external state file, inspect
+both repository names, and use the exact-confirmation `resume` command after
+fixing the failure. Do not restart `migrate` after the old repository was
+renamed.
 
 ## Workflow
 
@@ -41,6 +43,14 @@ node scripts/github-repository-reset.mjs prepare `
   --apply
 
 node scripts/github-repository-reset.mjs migrate `
+  --manifest <external-manifest> `
+  --repository <owner/name> `
+  --state <external-state> `
+  --confirm <owner/name> `
+  --apply
+
+# Only after a partially completed migrate:
+node scripts/github-repository-reset.mjs resume `
   --manifest <external-manifest> `
   --repository <owner/name> `
   --state <external-state> `

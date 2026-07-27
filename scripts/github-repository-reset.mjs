@@ -15,6 +15,7 @@ import { loadKeywordConfig } from "./leak-checker/keyword-config.mjs";
 import { scanDirectory } from "./leak-checker/scanner.mjs";
 import {
   buildResetPlan,
+  finalizeGitHubRepository,
   migrateGitHubRepository,
   readGitHubRepository,
 } from "./repository-reset/github-lifecycle.mjs";
@@ -30,6 +31,8 @@ const USAGE = `Usage:
   node scripts/github-repository-reset.mjs prepare --manifest <external.json>
     --repository <owner/name> --keywords-file <external.json> --state <external.json> --apply
   node scripts/github-repository-reset.mjs migrate --manifest <external.json>
+    --repository <owner/name> --state <external.json> --confirm <owner/name> --apply
+  node scripts/github-repository-reset.mjs resume --manifest <external.json>
     --repository <owner/name> --state <external.json> --confirm <owner/name> --apply
 
 The manifest, keyword file, state, and generated audit reports must stay outside
@@ -57,7 +60,7 @@ function parseArguments(args) {
     options[argument.slice(2).replaceAll("-", "_")] = value;
     index += 1;
   }
-  if (!["plan", "prepare", "migrate"].includes(command)) {
+  if (!["plan", "prepare", "migrate", "resume"].includes(command)) {
     throw new Error(USAGE);
   }
   if (!options.manifest) throw new Error("--manifest is required.");
@@ -154,10 +157,17 @@ export function main(args = process.argv.slice(2)) {
   ) {
     throw new Error("Reset state does not match the selected repository.");
   }
-  const result = migrateGitHubRepository(repository, {
-    rootCommit: state.rootCommit,
-    pushMain: pushNewMain,
-  });
+  const result = options.command === "resume"
+    ? finalizeGitHubRepository(repository, {
+      rootCommit: state.rootCommit,
+      originalRepositoryId: state.originalRepositoryId,
+      replacementRepositoryId: readGitHubRepository(repository.nameWithOwner).id,
+      pushMain: pushNewMain,
+    })
+    : migrateGitHubRepository(repository, {
+      rootCommit: state.rootCommit,
+      pushMain: pushNewMain,
+    });
   writeFileSync(statePath, `${JSON.stringify({
     ...state,
     migrated: true,

@@ -62,10 +62,17 @@ export function pushCleanBranch(
 }
 
 export function pushNewMain(repositoryPath, { commit, repositoryUrl }) {
+  const pushEnvironment = {
+    ...process.env,
+    ALLOW_MAIN_PUSH: "1",
+  };
   git(
     repositoryPath,
     ["push", repositoryUrl, `${commit}:refs/heads/main`],
-    { timeoutMs: 300_000 },
+    {
+      env: pushEnvironment,
+      timeoutMs: 300_000,
+    },
   );
   const remoteCommit = git(
     repositoryPath,
