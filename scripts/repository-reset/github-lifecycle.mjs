@@ -18,7 +18,7 @@ export function buildResetPlan(repository) {
     newRepository: repository.nameWithOwner,
     newVisibility: repository.newVisibility,
     newDefaultBranch: "main",
-    historyPolicy: "single-parentless-root-commit",
+    historyPolicy: "preserve-rewritten-commit-graph",
     forcePush: false,
   };
 }
@@ -26,7 +26,8 @@ export function buildResetPlan(repository) {
 export function migrateGitHubRepository(
   repository,
   {
-    rootCommit,
+    historyTip,
+    historyBundlePath,
     pushMain,
     commandRunner = runCommand,
   },
@@ -62,7 +63,8 @@ export function migrateGitHubRepository(
   }
 
   return finalizeGitHubRepository(repository, {
-    rootCommit,
+    historyTip,
+    historyBundlePath,
     originalRepositoryId: original.id,
     replacementRepositoryId: created.id,
     pushMain,
@@ -73,7 +75,8 @@ export function migrateGitHubRepository(
 export function finalizeGitHubRepository(
   repository,
   {
-    rootCommit,
+    historyTip,
+    historyBundlePath,
     originalRepositoryId,
     replacementRepositoryId,
     pushMain,
@@ -97,7 +100,11 @@ export function finalizeGitHubRepository(
   }
 
   const repositoryUrl = `https://github.com/${repository.nameWithOwner}.git`;
-  pushMain(repository.localPath, { commit: rootCommit, repositoryUrl });
+  pushMain(repository.localPath, {
+    bundlePath: historyBundlePath,
+    commit: historyTip,
+    repositoryUrl,
+  });
 
   ghJson([
     "api",
@@ -142,6 +149,6 @@ export function finalizeGitHubRepository(
     originalRepositoryId,
     replacementRepositoryId: replacement.id,
     archiveRepositoryId: archive.id,
-    rootCommit,
+    cleanHistoryTip: historyTip,
   };
 }

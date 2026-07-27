@@ -1,7 +1,7 @@
 # Public repository retained local identity and workspace paths
 
 - Date: 2026-07-28
-- Status: fixed in clean snapshot
+- Status: fixed in rewritten full history
 - Area: repository governance / personal data / history lifecycle
 - Severity: high confidentiality risk
 
@@ -23,10 +23,10 @@ identifier while documenting the issue.
 - Require an explicit workspace argument or `LUDIARS_BASE`.
 - Replace machine-specific examples with neutral placeholders.
 - Remove the local identifier from tracked review artifacts.
-- Create a parentless clean snapshot branch without force push.
+- Create a full-history clean branch without force push, preserving commit order,
+  parent structure, metadata, and messages.
 - Preserve the old GitHub repository as a private archived backup, then create a
-  distinct repository under the original name and push only the clean root
-  commit.
+  distinct repository under the original name and push the cleaned full history.
 
 ## Safety requirements for repository reset
 
@@ -35,6 +35,8 @@ identifier while documenting the issue.
 - The local worktree must be clean.
 - Forbidden references must be zero before snapshot preparation.
 - The clean backup branch must not already exist and is never force-pushed.
+- The rewritten commit count must equal the source commit count.
+- The rewritten history must be stored in an external bundle for migration.
 - Migration requires `--apply` and an exact repository confirmation.
 - The replacement repository must have a distinct GitHub repository ID.
 - The archived backup must be private.
@@ -42,7 +44,7 @@ identifier while documenting the issue.
 
 ## Migration recovery verification
 
-The first replacement-main push was correctly stopped by the local direct-main
+The first, incorrectly parentless replacement-main push was stopped by the local direct-main
 push guard after the old repository had been renamed and the empty replacement
 had been created. The tool now:
 
@@ -52,5 +54,8 @@ had been created. The tool now:
 - verifies the replacement has a different repository ID before resuming; and
 - never restarts the rename/create phase after a partial migration.
 
-The resumed migration pushed the prepared root without force, verified the new
-main ref, then made the renamed backup private and archived.
+The archived repository retained the complete original history, so the active
+repository was repaired by rewriting only the configured values across all
+source commits, pushing the resulting full history to a new branch without
+force, switching the default branch, deleting the temporary short-history main,
+and renaming the clean full-history branch to main.

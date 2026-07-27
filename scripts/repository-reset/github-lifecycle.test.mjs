@@ -17,7 +17,7 @@ const repository = {
   archiveVisibility: "private",
 };
 
-test("builds a no-force single-root migration plan", () => {
+test("builds a no-force history-preserving migration plan", () => {
   assert.deepEqual(buildResetPlan(repository), {
     repository: "ExampleOrg/ExampleRepo",
     cleanBranch: "clean/repository-reset-20260728",
@@ -26,7 +26,7 @@ test("builds a no-force single-root migration plan", () => {
     newRepository: "ExampleOrg/ExampleRepo",
     newVisibility: "public",
     newDefaultBranch: "main",
-    historyPolicy: "single-parentless-root-commit",
+    historyPolicy: "preserve-rewritten-commit-graph",
     forcePush: false,
   });
 });
@@ -52,7 +52,8 @@ test("renames, recreates, verifies, and archives through explicit API calls", ()
   const pushes = [];
 
   const result = migrateGitHubRepository(repository, {
-    rootCommit: "a".repeat(40),
+    historyTip: "a".repeat(40),
+    historyBundlePath: "C:/secure/clean-history.bundle",
     commandRunner,
     pushMain: (path, options) => pushes.push({ path, options }),
   });
@@ -61,12 +62,13 @@ test("renames, recreates, verifies, and archives through explicit API calls", ()
     originalRepositoryId: 10,
     replacementRepositoryId: 20,
     archiveRepositoryId: 10,
-    rootCommit: "a".repeat(40),
+    cleanHistoryTip: "a".repeat(40),
   });
   assert.deepEqual(pushes, [{
     path: "C:/workspace/ExampleRepo",
     options: {
       commit: "a".repeat(40),
+      bundlePath: "C:/secure/clean-history.bundle",
       repositoryUrl: "https://github.com/ExampleOrg/ExampleRepo.git",
     },
   }]);

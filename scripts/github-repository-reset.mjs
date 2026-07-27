@@ -20,8 +20,7 @@ import {
   readGitHubRepository,
 } from "./repository-reset/github-lifecycle.mjs";
 import {
-  createRootCommit,
-  pushCleanBranch,
+  prepareCleanHistory,
   pushNewMain,
 } from "./repository-reset/git-snapshot.mjs";
 import { loadResetManifest } from "./repository-reset/manifest.mjs";
@@ -36,10 +35,11 @@ const USAGE = `Usage:
     --repository <owner/name> --state <external.json> --confirm <owner/name> --apply
 
 The manifest, keyword file, state, and generated audit reports must stay outside
-the repository. prepare creates a parentless root commit and pushes it to a new
-clean branch without force. migrate renames the old repository, creates a new
-repository under the original name, pushes only the root commit to main, then
-makes the renamed backup private and archived.`;
+the repository. prepare rewrites only configured values while preserving the
+source commit graph, stores an external bundle, and pushes the rewritten history
+to a new clean branch without force. migrate renames the old repository, creates
+a new repository under the original name, pushes the bundle to main, then makes
+the renamed backup private and archived.`;
 
 function parseArguments(args) {
   const [command, ...rest] = args;
@@ -105,6 +105,7 @@ function assertCleanSnapshot(repository, keywordsFile) {
       `Snapshot contains ${findings.length} forbidden reference(s); preparation stopped.`,
     );
   }
+  return config;
 }
 
 export function main(args = process.argv.slice(2)) {
@@ -128,21 +129,29 @@ export function main(args = process.argv.slice(2)) {
       repository.localPath,
       "--keywords-file",
     );
-    assertCleanSnapshot(repository, keywordsFile);
+    const config = assertCleanSnapshot(repository, keywordsFile);
     const original = readGitHubRepository(repository.nameWithOwner);
-    const snapshot = createRootCommit(repository.localPath);
-    pushCleanBranch(repository.localPath, {
-      commit: snapshot.commit,
+    const bundlePath = `${statePath}.bundle`;
+    const history = prepareCleanHistory(repository.localPath, {
       branch: repository.cleanBranch,
+      bundlePath,
+      keywords: config.keywords,
     });
     writeFileSync(statePath, `${JSON.stringify({
       version: 1,
       repository: repository.nameWithOwner,
       originalRepositoryId: original.id,
-      rootCommit: snapshot.commit,
+      cleanHistoryTip: history.commit,
+      commitCount: history.commitCount,
+      rewrittenBlobCount: history.rewrittenBlobCount,
+      bundlePath,
       cleanBranch: repository.cleanBranch,
+      historyPolicy: "preserve-rewritten-commit-graph",
     }, null, 2)}\n`, "utf8");
-    console.log(`Prepared ${repository.nameWithOwner} at ${snapshot.commit}.`);
+    console.log(
+      `Prepared ${repository.nameWithOwner} at ${history.commit} `
+      + `(${history.commitCount} commits preserved).`,
+    );
     return;
   }
 
@@ -150,22 +159,30 @@ export function main(args = process.argv.slice(2)) {
     throw new Error("migrate requires --apply and exact --confirm <owner/name>.");
   }
   const state = JSON.parse(readFileSync(statePath, "utf8"));
+  const bundlePath = assertExternalPath(
+    state.bundlePath,
+    repository.localPath,
+    "saved bundle path",
+  );
   if (
     state.repository !== repository.nameWithOwner
     || state.cleanBranch !== repository.cleanBranch
-    || !/^[0-9a-f]{40}$/i.test(state.rootCommit)
+    || state.historyPolicy !== "preserve-rewritten-commit-graph"
+    || !/^[0-9a-f]{40}$/i.test(state.cleanHistoryTip)
   ) {
     throw new Error("Reset state does not match the selected repository.");
   }
   const result = options.command === "resume"
     ? finalizeGitHubRepository(repository, {
-      rootCommit: state.rootCommit,
+      historyTip: state.cleanHistoryTip,
+      historyBundlePath: bundlePath,
       originalRepositoryId: state.originalRepositoryId,
       replacementRepositoryId: readGitHubRepository(repository.nameWithOwner).id,
       pushMain: pushNewMain,
     })
     : migrateGitHubRepository(repository, {
-      rootCommit: state.rootCommit,
+      historyTip: state.cleanHistoryTip,
+      historyBundlePath: bundlePath,
       pushMain: pushNewMain,
     });
   writeFileSync(statePath, `${JSON.stringify({

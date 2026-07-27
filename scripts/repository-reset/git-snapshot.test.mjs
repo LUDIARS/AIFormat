@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import {
+  existsSync,
   mkdtempSync,
+  mkdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -11,7 +13,7 @@ import test from "node:test";
 
 import {
   assertCleanWorktree,
-  createRootCommit,
+  prepareCleanHistory,
 } from "./git-snapshot.mjs";
 
 function git(repositoryPath, ...args) {
@@ -24,45 +26,57 @@ function git(repositoryPath, ...args) {
   return result.stdout.trim();
 }
 
-test("creates a parentless commit from a clean source tree", () => {
-  const repositoryPath = mkdtempSync(join(tmpdir(), "aiformat-reset-root-"));
+test("rewrites configured values while preserving commit count", () => {
+  const root = mkdtempSync(join(tmpdir(), "aiformat-reset-history-"));
+  const repositoryPath = join(root, "repository");
+  const remotePath = join(root, "remote.git");
+  const bundlePath = join(root, "clean-history.bundle");
   try {
+    mkdirSync(repositoryPath);
+    mkdirSync(remotePath);
     git(repositoryPath, "init");
     git(repositoryPath, "checkout", "-b", "main");
     git(repositoryPath, "config", "user.name", "Reset Test");
     git(repositoryPath, "config", "user.email", "reset@example.invalid");
-    writeFileSync(join(repositoryPath, "README.md"), "clean snapshot\n");
+    writeFileSync(join(repositoryPath, "README.md"), "private-value v1\n");
     git(repositoryPath, "add", "README.md");
     git(repositoryPath, "commit", "-m", "initial");
-    writeFileSync(join(repositoryPath, "README.md"), "clean snapshot v2\n");
+    writeFileSync(join(repositoryPath, "README.md"), "private-value v2\n");
     git(repositoryPath, "add", "README.md");
-    git(repositoryPath, "commit", "-m", "update");
+    git(repositoryPath, "commit", "-m", "update private-value");
+    git(remotePath, "init", "--bare");
+    git(repositoryPath, "remote", "add", "origin", remotePath);
 
-    const snapshot = createRootCommit(repositoryPath);
-    const rootLine = git(
-      repositoryPath,
-      "rev-list",
-      "--parents",
-      "-n",
-      "1",
-      snapshot.commit,
-    );
+    const prepared = prepareCleanHistory(repositoryPath, {
+      branch: "clean/history",
+      bundlePath,
+      keywords: [{
+        id: "term-1",
+        value: "private-value",
+        match: "substring",
+      }],
+    });
 
-    assert.equal(rootLine.split(/\s+/).length, 1);
+    assert.equal(prepared.commitCount, 2);
+    assert.equal(existsSync(bundlePath), true);
     assert.equal(
-      git(repositoryPath, "rev-parse", `${snapshot.commit}^{tree}`),
-      git(repositoryPath, "rev-parse", "HEAD^{tree}"),
+      git(remotePath, "rev-list", "--count", "refs/heads/clean/history"),
+      "2",
+    );
+    assert.equal(
+      git(remotePath, "log", "-p", "--format=", "refs/heads/clean/history")
+        .includes("private-value"),
+      false,
     );
   } finally {
-    rmSync(repositoryPath, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("refuses to prepare a snapshot from a dirty worktree", () => {
+test("refuses to prepare rewritten history from a dirty worktree", () => {
   const repositoryPath = mkdtempSync(join(tmpdir(), "aiformat-reset-dirty-"));
   try {
     git(repositoryPath, "init");
-    git(repositoryPath, "checkout", "-b", "main");
     writeFileSync(join(repositoryPath, "untracked.txt"), "dirty\n");
     assert.throws(() => assertCleanWorktree(repositoryPath), /must be clean/i);
   } finally {
