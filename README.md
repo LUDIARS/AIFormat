@@ -27,6 +27,7 @@ LUDIARS 全リポジトリ共通の設計ルール・レビューフォーマッ
 - [`REVIEW.md`](./REVIEW.md) — レビュー全体の入口
 - [`prompt/`](./prompt/) — 実行プロンプト集 (フルレビュー / PR 差分レビュー / 仕様欠落検知・spec 自動生成)
 - [`script_design/`](./script_design/) — 機械解析スクリプトの設計 (CI ゲート / Anatomia 計装の振り分けと検知ロジック)
+- [`scripts/LEAK_CHECKER.md`](./scripts/LEAK_CHECKER.md) — ローカル漏洩走査と GitHub public/private 境界監査
 - `common/REVIEW_*.md` — 共通レビューフォーマット (設計 / コード品質 / 脆弱性・サプライチェーン / 品質保証 / AI 活用 / 未実装)
 - `web/` `local-app/` `game/` — スタイル別レビューフォーマット
 

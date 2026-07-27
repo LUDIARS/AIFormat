@@ -6,7 +6,7 @@
  * 登録済みキーワードが含まれていないかを検出する。
  *
  * CLI モード:
- *   node env-leak-checker.mjs scan [repo_path]
+ *   node env-leak-checker.mjs scan [repo_path] [--config <path>]
  *   node env-leak-checker.mjs list
  *   node env-leak-checker.mjs add <keyword>
  *   node env-leak-checker.mjs remove <keyword>
@@ -18,7 +18,6 @@
 
 import { createServer } from "node:http";
 import {
-  readFileSync,
   writeFileSync,
   existsSync,
   readdirSync,
@@ -27,11 +26,17 @@ import {
 import { join, basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { loadKeywordConfig } from "./leak-checker/keyword-config.mjs";
+import { scanDirectory } from "./leak-checker/scanner.mjs";
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONFIG_PATH = join(__dirname, "env-leak-keywords.json");
-const BASE_DIR = process.env.LUDIARS_BASE || "<workspace-root>";
+const LOCAL_CONFIG_PATH = join(__dirname, "env-leak-keywords.local.json");
+const BASE_DIR = process.env.LUDIARS_BASE
+  ? resolve(process.env.LUDIARS_BASE)
+  : null;
 
 let VERBOSE = false;
+let SHOW_CONTENT = false;
 
 function log(...args) {
   if (VERBOSE) console.log("[v]", ...args);
@@ -39,122 +44,40 @@ function log(...args) {
 
 // ── キーワード管理 ────────────────────────────────────────
 
-function loadKeywords() {
-  if (!existsSync(CONFIG_PATH)) {
-    writeFileSync(CONFIG_PATH, JSON.stringify({ keywords: [], ignore_patterns: [] }, null, 2));
+function loadKeywords(configPath) {
+  if (!existsSync(configPath)) {
+    return { keywords: [], ignorePatterns: [] };
   }
-  return JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+  return loadKeywordConfig(configPath);
 }
 
-function saveKeywords(config) {
-  writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + "\n");
-}
-
-
-// ── 除外ディレクトリ / 拡張子 ─────────────────────────────
-
-const IGNORE_DIRS = new Set([
-  "node_modules", ".git", "dist", "build", "target",
-  "__pycache__", "venv", ".next", ".nuxt",
-]);
-
-const IGNORE_EXTS = new Set([
-  ".lock", ".wasm", ".png", ".jpg", ".jpeg", ".gif", ".ico",
-  ".woff", ".woff2", ".ttf", ".otf", ".eot",
-  ".db", ".db-shm", ".db-wal", ".sqlite",
-  ".min.js", ".min.css",
-]);
-
-const IGNORE_NAMES = new Set([
-  "package-lock.json", "pnpm-lock.yaml", "Cargo.lock",
-  "env-leak-keywords.json",
-]);
-
-function shouldIgnoreFile(relPath) {
-  const name = basename(relPath);
-  if (name.startsWith(".env")) return true;
-  if (IGNORE_NAMES.has(name)) return true;
-  const ext = name.includes(".") ? "." + name.split(".").pop() : "";
-  if (IGNORE_EXTS.has(ext)) return true;
-  // Check double extensions like .min.js
-  const parts = name.split(".");
-  if (parts.length >= 3) {
-    const dblExt = "." + parts.slice(-2).join(".");
-    if (IGNORE_EXTS.has(dblExt)) return true;
-  }
-  return false;
-}
-
-// ── ファイル走査 (Node.js ネイティブ、grep 不要) ──────────
-
-function walkDir(dir, relBase = "") {
-  const files = [];
-  let entries;
-  try { entries = readdirSync(dir, { withFileTypes: true }); }
-  catch { return files; }
-
-  for (const entry of entries) {
-    if (IGNORE_DIRS.has(entry.name)) continue;
-    const fullPath = join(dir, entry.name);
-    const relPath = relBase ? relBase + "/" + entry.name : entry.name;
-
-    if (entry.isDirectory()) {
-      files.push(...walkDir(fullPath, relPath));
-    } else if (entry.isFile()) {
-      if (!shouldIgnoreFile(relPath)) {
-        files.push({ fullPath, relPath });
-      }
-    }
-  }
-  return files;
+function saveKeywords(configPath, config) {
+  const serializable = {
+    keywords: config.keywords.map((keyword) =>
+      keyword.id === keyword.value && keyword.match === "substring"
+        ? keyword.value
+        : { id: keyword.id, value: keyword.value, match: keyword.match }
+    ),
+    ignore_patterns: config.ignorePatterns,
+  };
+  writeFileSync(configPath, `${JSON.stringify(serializable, null, 2)}\n`, "utf8");
 }
 
 // ── スキャン実行 ──────────────────────────────────────────
 
-function scanRepo(repoPath, keywords) {
+function scanRepo(repoPath, config) {
+  const { keywords, ignorePatterns } = config;
   if (!keywords.length) return [];
 
   const repoName = basename(repoPath);
   log(`Scanning: ${repoName} (${repoPath})`);
-  log(`  keywords: ${keywords.join(", ")}`);
+  log(`  keyword labels: ${keywords.map((keyword) => keyword.id).join(", ")}`);
 
   const t0 = performance.now();
-  const results = [];
-  const kwLower = keywords.map((kw) => kw.toLowerCase());
-  const files = walkDir(repoPath);
-  log(`  files: ${files.length}`);
-
-  for (const { fullPath, relPath } of files) {
-    let content;
-    try {
-      content = readFileSync(fullPath, "utf-8");
-    } catch {
-      continue; // binary or unreadable
-    }
-
-    const contentLower = content.toLowerCase();
-
-    // Quick check: does any keyword appear anywhere in the file?
-    const matchingKws = keywords.filter((kw, i) => contentLower.includes(kwLower[i]));
-    if (!matchingKws.length) continue;
-
-    // Line-level scan
-    const lines = content.split("\n");
-    for (let i = 0; i < lines.length; i++) {
-      const lineLower = lines[i].toLowerCase();
-      const lineKws = matchingKws.filter((kw) => lineLower.includes(kw.toLowerCase()));
-      if (!lineKws.length) continue;
-
-      results.push({
-        file: relPath,
-        line: i + 1,
-        content: lines[i].trim().slice(0, 200),
-        keywords: lineKws,
-      });
-    }
-  }
-
-
+  const results = scanDirectory(repoPath, keywords, {
+    ignorePatterns,
+    includeContent: SHOW_CONTENT,
+  });
   const elapsed = (performance.now() - t0).toFixed(0);
   log(`  ${repoName}: ${results.length} hit(s) in ${elapsed}ms`);
 
@@ -163,10 +86,19 @@ function scanRepo(repoPath, keywords) {
 
 // ── LUDIARS リポジトリ列挙 ────────────────────────────────
 
-function listRepos() {
+function requireBaseDirectory() {
+  if (!BASE_DIR) {
+    throw new Error(
+      "LUDIARS_BASE is required when no repository path is supplied.",
+    );
+  }
+  return BASE_DIR;
+}
+
+function listRepos(baseDirectory = requireBaseDirectory()) {
   const repos = [];
-  for (const name of readdirSync(BASE_DIR)) {
-    const full = join(BASE_DIR, name);
+  for (const name of readdirSync(baseDirectory)) {
+    const full = join(baseDirectory, name);
     try {
       if (!statSync(full).isDirectory()) continue;
       if (!existsSync(join(full, ".git"))) continue;
@@ -180,15 +112,15 @@ function listRepos() {
 
 // ── CLI モード ────────────────────────────────────────────
 
-function runCli(args) {
+function runCli(args, configPath) {
   const cmd = args[0];
-  const config = loadKeywords();
+  const config = loadKeywords(configPath);
 
   switch (cmd) {
     case "list": {
       console.log("Keywords:", config.keywords.length ? "" : "(none)");
-      for (const kw of config.keywords) console.log(`  - ${kw}`);
-      break;
+      for (const keyword of config.keywords) console.log(`  - ${keyword.id}`);
+      return 0;
     }
 
     case "add": {
@@ -197,54 +129,54 @@ function runCli(args) {
         console.error("Usage: add <keyword>");
         process.exit(1);
       }
-      if (!config.keywords.includes(kw)) {
-        config.keywords.push(kw);
-        saveKeywords(config);
+      if (!config.keywords.some((keyword) => keyword.value === kw)) {
+        config.keywords.push({ id: kw, value: kw, match: "substring" });
+        saveKeywords(configPath, config);
         console.log(`Added: "${kw}"`);
       } else {
         console.log(`Already exists: "${kw}"`);
       }
-      break;
+      return 0;
     }
 
     case "remove": {
       const kw = args.slice(1).join(" ");
-      const idx = config.keywords.indexOf(kw);
+      const idx = config.keywords.findIndex((keyword) => keyword.value === kw);
       if (idx >= 0) {
         config.keywords.splice(idx, 1);
-        saveKeywords(config);
+        saveKeywords(configPath, config);
         console.log(`Removed: "${kw}"`);
       } else {
         console.log(`Not found: "${kw}"`);
       }
-      break;
+      return 0;
     }
 
     case "scan": {
-      const remaining = args.slice(1).filter((a) => a !== "-v");
-      const target = remaining[0] || BASE_DIR;
+      const target = args[1] ? resolve(args[1]) : requireBaseDirectory();
       if (config.keywords.length === 0) {
         console.log("No keywords registered. Use 'add' to register.");
         return;
       }
 
-      console.log(`Keywords: ${config.keywords.join(", ")}`);
+      console.log(`Keyword labels: ${config.keywords.map((keyword) => keyword.id).join(", ")}`);
 
       if (existsSync(join(target, ".git"))) {
         // 単一リポジトリ
         console.log(`Target: ${target}`);
-        const hits = scanRepo(target, config.keywords);
+        const hits = scanRepo(target, config);
         printHits(basename(target), hits);
         console.log(`\nTotal: ${hits.length} hit(s)`);
+        return hits.length > 0 ? 1 : 0;
       } else {
         // ディレクトリ内の全リポジトリ
-        const repos = listRepos();
+        const repos = listRepos(target);
         console.log(`Target: ${repos.length} repositories in ${target}`);
         log(`Repos: ${repos.map((r) => r.name).join(", ")}`);
         let total = 0;
         let clean = 0;
         for (const repo of repos) {
-          const hits = scanRepo(repo.path, config.keywords);
+          const hits = scanRepo(repo.path, config);
           if (hits.length) {
             printHits(repo.name, hits);
             total += hits.length;
@@ -253,14 +185,15 @@ function runCli(args) {
           }
         }
         console.log(`\nTotal: ${total} hit(s) across ${repos.length} repositories (${clean} clean)`);
+        return total > 0 ? 1 : 0;
       }
-      break;
     }
 
     default:
       console.log(
         "Usage: env-leak-checker.mjs <scan|list|add|remove|serve> [args]"
       );
+      return 2;
   }
 }
 
@@ -268,15 +201,16 @@ function printHits(repoName, hits) {
   if (!hits.length) return;
   console.log(`\n=== ${repoName} (${hits.length} hits) ===`);
   for (const h of hits) {
-    const kws = h.keywords.map((k) => `[${k}]`).join(" ");
+    const kws = h.keywordIds.map((id) => `[${id}]`).join(" ");
     console.log(`  ${h.file}:${h.line}  ${kws}`);
-    console.log(`    ${h.content}`);
+    if (h.content) console.log(`    ${h.content}`);
   }
 }
 
 // ── GUI サーバー ──────────────────────────────────────────
 
-function startServer(port) {
+function startServer(port, configPath) {
+  requireBaseDirectory();
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
 
@@ -287,28 +221,30 @@ function startServer(port) {
 
     // API routes
     if (url.pathname === "/api/keywords" && req.method === "GET") {
-      const config = loadKeywords();
-      json(res, 200, config);
+      const config = loadKeywords(configPath);
+      json(res, 200, { keywords: config.keywords.map((keyword) => keyword.value) });
       return;
     }
 
     if (url.pathname === "/api/keywords" && req.method === "POST") {
       const body = await readBody(req);
-      const config = loadKeywords();
-      if (body.keyword && !config.keywords.includes(body.keyword)) {
-        config.keywords.push(body.keyword);
-        saveKeywords(config);
+      const config = loadKeywords(configPath);
+      const keyword = typeof body.keyword === "string" ? body.keyword.trim() : "";
+      if (keyword && !config.keywords.some((item) => item.value === keyword)) {
+        config.keywords.push({ id: keyword, value: keyword, match: "substring" });
+        saveKeywords(configPath, config);
       }
-      json(res, 200, config);
+      json(res, 200, { keywords: config.keywords.map((item) => item.value) });
       return;
     }
 
     if (url.pathname === "/api/keywords" && req.method === "DELETE") {
       const body = await readBody(req);
-      const config = loadKeywords();
-      config.keywords = config.keywords.filter((k) => k !== body.keyword);
-      saveKeywords(config);
-      json(res, 200, config);
+      const config = loadKeywords(configPath);
+      const keyword = typeof body.keyword === "string" ? body.keyword.trim() : "";
+      config.keywords = config.keywords.filter((item) => item.value !== keyword);
+      saveKeywords(configPath, config);
+      json(res, 200, { keywords: config.keywords.map((item) => item.value) });
       return;
     }
 
@@ -320,23 +256,30 @@ function startServer(port) {
 
     if (url.pathname === "/api/scan" && req.method === "POST") {
       const body = await readBody(req);
-      const config = loadKeywords();
+      const config = loadKeywords(configPath);
       if (!config.keywords.length) {
         json(res, 200, { results: [], message: "No keywords registered" });
+        return;
+      }
+
+      const availableRepos = listRepos();
+      const repoByName = new Map(availableRepos.map((repo) => [repo.name, repo]));
+      if (body.repo && (typeof body.repo !== "string" || !repoByName.has(body.repo))) {
+        json(res, 400, { message: "Unknown repository" });
         return;
       }
 
       const allResults = [];
       const scanLog = [];
       const targetRepos = body.repo
-        ? [{ name: body.repo, path: join(BASE_DIR, body.repo) }]
-        : listRepos();
+        ? [repoByName.get(body.repo)]
+        : availableRepos;
 
       const t0 = performance.now();
       for (const repo of targetRepos) {
         if (!existsSync(join(repo.path, ".git"))) continue;
         const rt0 = performance.now();
-        const hits = scanRepo(repo.path, config.keywords);
+        const hits = scanRepo(repo.path, config);
         const elapsed = (performance.now() - rt0).toFixed(0);
         scanLog.push({ repo: repo.name, hits: hits.length, ms: parseInt(elapsed, 10) });
         if (hits.length) {
@@ -543,8 +486,8 @@ async function runScan() {
       '<div class="hit">' +
         '<span class="file">' + esc(h.file) + '</span>' +
         ':<span class="line">' + h.line + '</span> ' +
-        h.keywords.map(k => '<span class="kw">[' + esc(k) + ']</span>').join(' ') +
-        '<span class="content">' + esc(h.content) + '</span>' +
+        h.keywordIds.map(k => '<span class="kw">[' + esc(k) + ']</span>').join(' ') +
+        (h.content ? '<span class="content">' + esc(h.content) + '</span>' : '') +
       '</div>'
     ).join('');
     return '<details class="result-repo" open>' +
@@ -569,19 +512,44 @@ const rawArgs = process.argv.slice(2);
 if (rawArgs.includes("-v") || rawArgs.includes("--verbose")) {
   VERBOSE = true;
 }
-const args = rawArgs.filter((a) => a !== "-v" && a !== "--verbose");
+if (rawArgs.includes("--show-content")) {
+  SHOW_CONTENT = true;
+}
+
+const configIndex = rawArgs.indexOf("--config");
+if (
+  configIndex >= 0
+  && (!rawArgs[configIndex + 1] || rawArgs[configIndex + 1].startsWith("--"))
+) {
+  console.error("--config requires a path.");
+  process.exit(2);
+}
+const configPath = configIndex >= 0
+  ? resolve(rawArgs[configIndex + 1])
+  : LOCAL_CONFIG_PATH;
+const args = rawArgs.filter((argument, index) =>
+  argument !== "-v"
+  && argument !== "--verbose"
+  && argument !== "--show-content"
+  && argument !== "--config"
+  && (configIndex < 0 || index !== configIndex + 1)
+);
 
 if (args[0] === "serve") {
   const portIdx = args.indexOf("--port");
   const parsedPort = portIdx >= 0 ? parseInt(args[portIdx + 1], 10) : 7700;
-  // NaN (--port に非数値) のとき listen(NaN) で実行時エラーになるため既定へフォールバック。
-  const port = Number.isInteger(parsedPort) ? parsedPort : 7700;
-  startServer(port);
+  if (!Number.isInteger(parsedPort) || parsedPort < 1 || parsedPort > 65535) {
+    console.error("--port requires an integer from 1 to 65535.");
+    process.exit(2);
+  }
+  startServer(parsedPort, configPath);
 } else if (args.length === 0) {
   console.log(
     "Usage: env-leak-checker.mjs <scan|list|add|remove|serve> [args]\n" +
-    "  -v, --verbose    Show scan targets and timing"
+    "  --config <path>   Read/write an ignored or external keyword file\n" +
+    "  --show-content    Explicitly include matching source lines\n" +
+    "  -v, --verbose     Show scan targets and timing"
   );
 } else {
-  runCli(args);
+  process.exitCode = runCli(args, configPath);
 }

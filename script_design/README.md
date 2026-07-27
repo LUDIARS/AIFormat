@@ -51,6 +51,7 @@ HARNESS の原則「強制できるものは記憶に頼らない」をレビュ
 | `check-spec-structure.mjs` | CI ゲート | FORMAT_SPEC §1 (標準フォルダ欠落 warning / data gitignore 事故) |
 | `check-latest-json.mjs` | CI ゲート | REVIEW.md (latest.json スキーマ) |
 | `env-leak-checker.mjs` | 計装 (手動起点) | 環境名・個人名の漏洩 |
+| `github-public-leak-audit.mjs` | 計装 (認証済みローカル手動起点) | public/private リポ境界の固有名・関連語漏洩 |
 | `utf8bom.mjs` | 修正ツール | RULE_CODE §17 (エンコーディング) |
 
 ### 設計 (本フォルダ。実装は Anatomia 側)

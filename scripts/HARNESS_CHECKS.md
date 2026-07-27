@@ -81,9 +81,9 @@ node /path/to/AIFormat/scripts/scaffold-spec.mjs . --dry  # 予定だけ表示
 - `spec/README.md` に索引を置く
 - `.gitignore` の無アンカー `data/` を `/data/` にアンカー
   (これをしないと `spec/data/*` が silently untracked になる。2026-06-19 に
-  Ostiarius / EducationLab / Canalis で実害)
+  複数リポジトリで実害)
 
-> 背景: 2026-06-19 の新規 6 リポ (Lapilli/Anatomia/Ostiarius/Fundamentum/EducationLab/Canalis)
+> 背景: 2026-06-19 に追加された複数リポジトリ
 > 全件で「DESIGN.md は厚いのに spec/ 分類に落ちていない」穴が出た。設計を書く力ではなく
 > **最初の形** が欠けていたので、雛形 (scaffold) と番人 (check) の両輪で塞ぐ。
 
