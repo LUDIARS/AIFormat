@@ -353,6 +353,24 @@ git -C <repo> worktree remove <別パス>
 - 既に worktree がある場合は新規に作らず再利用する
 - リリース集約等、main を確定操作する場合のみメインチェックアウトを使う
 
+### 6.5 GitHub はリリースバージョン管理に限定する
+
+- **`main` のリリース更新は GitHub App 経由だけで行う。** 人・AI・PAT・
+  通常の Git 認証による `main` への直 push は禁止する。
+- **`main` 以外のブランチは push 禁止。** 開発・レビュー用の feat / fix /
+  その他ブランチはローカルで管理し、GitHub へ push しない。
+- **GitHub PR は禁止。PR は Revisor 経由で行う。** 開発途中の共有・レビュー・
+  統合を GitHub のブランチや PR に依存させない。
+- **GitHub はリリースバージョンの管理にだけ使用する。** GitHub App から
+  `main` へ公開するときは、同じリリース変更にプロジェクト正本の
+  バージョン更新を必ず含める。
+- **メジャーバージョンアップと大きいマイナーバージョンアップでタグを打つ。**
+  メジャータグのタイミングは人間が判断し、マイナータグのタイミングは AI が
+  判断する。タグの公開も GitHub App 経由で行い、直 push しない。
+- **GitHub CI / GitHub Actions の workflow は置かない。** lint / build /
+  typecheck / test 等の検証はローカルで完了させ、検証済みのリリースだけを
+  local main へ集約し、GitHub App から GitHub の `main` へ公開する。
+
 ## 7. シークレット・設定管理
 
 ローカルで動かす環境統合系（サービス間連携・常駐ツール・dev 起動・自動化エージェント等）の

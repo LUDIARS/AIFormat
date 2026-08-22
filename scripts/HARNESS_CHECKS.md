@@ -77,7 +77,9 @@ node /path/to/AIFormat/scripts/scaffold-spec.mjs . --dry  # 予定だけ表示
 やること (すべて冪等・既存ファイルは温存):
 
 - `spec/{data,feature,interface,setup,test}/README.md` に分類ガイドを置く
-  (`plan/` は実装の都度作る作業ドキュメント、`faq/`・`knowledge/` は随時追記型なので雛形には含めない)
+  (`plan/` は実装の都度作る作業ドキュメント、`faq/`・`knowledge/` は随時追記型、
+   `domains/` はコードとテストを被覆する `*.domain.json` を用意するときに手で作るので、
+   いずれも雛形には含めない)
 - `spec/README.md` に索引を置く
 - `.gitignore` の無アンカー `data/` を `/data/` にアンカー
   (これをしないと `spec/data/*` が silently untracked になる。2026-06-19 に

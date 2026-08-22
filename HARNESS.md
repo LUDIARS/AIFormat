@@ -19,10 +19,12 @@ LUDIARS のリポジトリで**作業を始める前に最初に読む**文書�
 - **記憶** — このページ / メモリ / スキルを参照して守る。柔軟だが**陳腐化に弱い**。
 - **フック強制** — 着手前後に harness フックが自動で文脈注入・検査する
   (例: Anatomia `supply→verify` が着手前の着地点・適用ルールを自動供給)。記憶より強い。
-- **CI ゲート** — マージ前に機械が落とす(型 / lint / テスト / スキーマ突合)。**最も強い**。
+- **ローカル検証ゲート** — リリース前に機械が落とす(型 / lint / テスト /
+  スキーマ突合)。**最も強い**。
 
-**フック・CI で担保できるものは記憶に頼らない。** 文書が古くなっても仕組みが残る。
-新しいルールを足すときは「これは記憶 / フック / CI のどれで守るか」をまず決める。
+**フック・ローカル検証で担保できるものは記憶に頼らない。** 文書が古くなっても
+仕組みが残る。新しいルールを足すときは「これは記憶 / フック / ローカル検証の
+どれで守るか」をまず決める。
 
 ---
 
@@ -75,6 +77,28 @@ LUDIARS のリポジトリで**作業を始める前に最初に読む**文書�
 [`RULE_DATA_SCHEMA.md`](./RULE_DATA_SCHEMA.md) /
 [`FORMAT_SPEC.md`](./FORMAT_SPEC.md)。**
 
+### 2.0 どのドメインに置くか(最初に決める)
+
+- **新規実装(コード / UI)は、着地するドメインを決めてから書く。**
+  ドメインは**設計時点で決まる**。実装しながら「これはどのドメインか」を
+  併せて考え、**同じ PR で Anatomia のドメイン定義に登録する**
+  (`spec/domains/<name>.domain.json`。既存ドメインの守備範囲なら
+  `membership` に `pathPattern` を 1 行足す。src と tests を対で入れる)。
+- **着手前に `where`、提出前に `verify`。**
+  `anatomia.mjs where --project <name> --task "..."` で着地点を取り、
+  `git diff | anatomia.mjs verify --repo <path> --json`(exit 0 が pass)で検査する。
+  この 2 手は記憶ではなく **フック強制**(harness の Anatomia
+  `supply→verify`)で担保する(→ 「ハーネスの原則」)。
+  委託で書かせるときもこの 3 手(where → 紐づけ → verify)を指示に含める。
+- **未宣言を残すと、穴を開けた本人ではなく後からそこを触った PR が止まる**
+  (`target domain is still missing`)。ドメイン JSON はパースできないと
+  警告なく捨てられ「宣言し忘れ」と区別がつかない。書いたら JSON parse と
+  正規表現を必ず通す(JSON なので `\.` と二重エスケープ)。
+- 正本ディレクトリは `spec/domains/`。これがあれば `.anatomia/domains/` /
+  `spec/data/ontology/` は読まれない(→ §2.4 / [`FORMAT_SPEC.md`](./FORMAT_SPEC.md))。
+- **設計レビューはドメインから入る** →
+  [`common/REVIEW_DESIGN.md`](./common/REVIEW_DESIGN.md) §0。
+
 ### 2.1 単一責任 + ファイル分割(必須)
 
 - **1 クラス / 1 モジュール / 1 関数 = 1 責任**([`RULE_CODE.md`](./RULE_CODE.md)
@@ -102,15 +126,16 @@ LUDIARS のリポジトリで**作業を始める前に最初に読む**文書�
 
 ### 2.4 ドキュメントの置き場所(spec/)
 
-- 設計仕様はルート `spec/` の標準 8 分類
-  (`data` / `faq` / `feature` / `interface` / `knowledge` / `plan` / `setup` / `test`)を
+- 設計仕様はルート `spec/` の標準 9 分類
+  (`data` / `domains` / `faq` / `feature` / `interface` / `knowledge` / `plan` / `setup` / `test`)を
   基本とする([`FORMAT_SPEC.md`](./FORMAT_SPEC.md))。分類は固定せず、`tasks/` など
   プロジェクト固有の正本を表すフォルダや直下ファイルを許可する。`plan/`・`faq/`・
-  `knowledge/` 以外の 5 分類が無い場合は CI が warning を出すが、欠落だけでは失敗させない。
+  `knowledge/`・`domains/` 以外の 5 分類が無い場合はローカル検証
+  (`check-spec-structure.mjs`) が warning を出すが、欠落だけでは失敗させない。
 - **発生した問題・障害の記録は `spec/knowledge/problems/` に蓄積する**
   (1 問題 1 ファイル。症状・原因・解決策・再発防止 —
-  [`FORMAT_SPEC.md`](./FORMAT_SPEC.md) §7)。小規模な正本や索引は `knowledge/` 直下でもよい。
-- 実装に入る前に、第 I 部の 3 点(採用アーキ・目的と重視点・設計判断)を
+  [`FORMAT_SPEC.md`](./FORMAT_SPEC.md) §8)。小規模な正本や索引は `knowledge/` 直下でもよい。
+- 実装に入る前に、第 I 部の 4 点(ドメイン・採用アーキ・目的と重視点・設計判断)を
   `spec/` に宣言してから書く([`RULE_CODE.md`](./RULE_CODE.md) 第 I 部)。
 
 ### 2.5 技術スタック
@@ -157,12 +182,15 @@ LUDIARS のリポジトリで**作業を始める前に最初に読む**文書�
 - **指示の範囲だけ作る。** 依頼物の種類・形式・範囲だけを作り、便利
   スクリプトや「ついで」を勝手に足さない。規約に反する指示は着手前に指摘する。
 
-### 3.3 ブランチ → PR → 自動マージ
+### 3.3 ローカル開発 → main へリリース
 
-- **main 直 push 禁止。全変更は feat / fix ブランチ + PR 経由。**
+- **GitHub の `main` 更新は GitHub App 経由のみ。`main` への直 push は禁止。**
+- **`main` 以外のブランチも push 禁止。** feat / fix / その他の開発ブランチは
+  ローカルだけで管理する。
 - **編集は worktree 経由**で行う(メインチェックアウトでブランチを切り替えない。
   並行セッション・自動化が同一 working tree を壊すため)。worktree は
-  作る前に `origin/main` を fetch して最新 base で切る。
+  最新の**ローカル `main`** を base に切る(統合先はローカル main。
+  `origin/main` はリリース済みの版であり、未公開のローカル統合分を含まない)。
   → [`RULE.md`](./RULE.md) §6 / スキル `worktree-hygiene`。
 - **AI 実装は 1 PR 集約**(フェーズ分割しない)。
 - **解析成果の固有情報はコミット禁止。** Omnipotens 等の解析パイプラインが
@@ -172,10 +200,14 @@ LUDIARS のリポジトリで**作業を始める前に最初に読む**文書�
   入れてよいのはタイトル非依存・公開情報のみのキャッシュだけ。成果物は
   ローカル(`review/Omnipotens/<title>-local-only/` 等 Git 管理外)に留める。
   GitHub の PR は事後に完全削除できないため、予防が唯一の統制。
-- **Ars 配下は自動マージ**(squash + delete)→ クリーンアップ(worktree 撤去 +
-  prune + main 同期)→ **同セッションの残タスクへ継続**。**CI が red の時だけ
-  止める**(無 CI はマージ可)。
-- マージ完了は origin 実体で裏取りする(`gh` 表示だけで判断しない)。
+- **GitHub PR は禁止。PR は Revisor 経由で行う。** 開発・レビュー・統合は
+  ローカルで完結させ、GitHub のブランチ / PR / CI を開発経路に使わない。
+- lint / build / typecheck / test 等のローカル検証を終えた変更だけを local main
+  に集約し、**GitHub App 経由でリリースバージョンを GitHub の `main` へ公開**する。
+- GitHub へ公開する変更には、**プロジェクト正本のバージョン更新を必ず含める。**
+- **メジャーと大きいマイナーのバージョンアップでタグを打つ。** メジャータグは
+  人間判断、マイナータグは AI 判断とし、タグも GitHub App 経由で公開する。
+- 詳細は [`RULE.md`](./RULE.md) §6.5 を正本とする。
 
 ### 3.4 検証は実経路で裏取りする
 
@@ -198,13 +230,14 @@ LUDIARS のリポジトリで**作業を始める前に最初に読む**文書�
 1. 設計済み機能を**フルセットで実装 + 配線**した(§3.1。MVP で止めない)。
 2. **テストが green**(該当アーキのテスト種別 — [`RULE_TEST.md`](./RULE_TEST.md))。
 3. **実経路で裏取り**した(§3.4。ビルド green の自己申告で代替しない)。
-4. branch → PR → マージ → クリーンアップまで通し、**origin 実体で確認**した(§3.3)。
+4. ローカル統合 → main リリース → クリーンアップまで通し、公開した場合は
+   **origin 実体で確認**した(§3.3)。
 5. 残タスク・学びを**記録**した(§0 のループ閉じ)。
 
 ### 3.7 トレースを残す(観測可能性)
 
-- 新機能・不安定機能は初期に**過剰レベルでログを仕込み**、安定後に撤去 PR で
-  落とす(撤去条件は GitHub Issue で tracker 化)。→ スキル `verbose-logging-bootstrap`。
+- 新機能・不安定機能は初期に**過剰レベルでログを仕込み**、安定後のローカル変更で
+  落とす(撤去条件はローカルのタスク管理に記録)。→ スキル `verbose-logging-bootstrap`。
 - LLM コスト等の横断計装は集約ハブ(Anatomia)へ送る。「動いたか」だけでなく
   「いくらかかったか / どこで詰まったか」を残せる状態にしておく。
 - **エラーは握りつぶさない(必ず出力 / 致命は fail-fast)。** `catch {}` /
@@ -231,6 +264,15 @@ LUDIARS のリポジトリで**作業を始める前に最初に読む**文書�
 抽象的な「破壊的操作は確認」(§3.2)より、**具体パターンの方がハーネスとして強い**。
 以下は過去に実害が出た操作。該当したら手を止めて確認する。
 
+- **個人環境に依存する処理を書いたら死刑。** 接続先・パス・タイミング・存在判定を
+  「特定マシンの home / ユーザ名 / ディスク速度 / プロセス起動順」へ暗黙依存させない。
+  「環境が違うと走ったり走らなかったりする」実装は**仕様ではなくバグ**。具体的に禁止:
+  個人絶対パス(`C:\Users\<name>\…`)を実在前提で参照する/固定 sleep・固定タイムアウトで
+  起動順レースに賭ける/リプレイの無い 1 回限り push に配送を委ねる。配送・初期化は
+  **再送・プル・ハンドシェイクで決定化**し、パスは**設定経由で解決**する(§1「手元だけ env を
+  立てれば動く状態を残さない」と同根)。〔実害 2026-06-30: goal-start inject が 500ms 固定
+  push + リプレイ無しで、遅い環境だけ取りこぼし → 初回ターン不発で個人パスの transcript
+  存在チェックが永久 defer しログ洪水。修正は「ptyWriter 確定後にプル + event id で dedup」〕
 - **`git reset --hard` で main 同期しない。** 共有作業ツリーの別セッション
   未コミット変更を無告知破壊する。同期は `fetch` + `merge --ff-only`、事前に
   `status` clean 確認。消したら `gc` 禁止 + `fsck` で dangling blob 復元。
@@ -239,9 +281,22 @@ LUDIARS のリポジトリで**作業を始める前に最初に読む**文書�
   busy = 生接続の合図)。
 - **`rebase` が untracked 衝突で abort したら `git stash push -u`。**
   `mv backup/` + `rm -rf` は地雷(実害あり)。
-- **`gh pr merge` は worktree から実行しない。** main 二重 checkout 衝突で失敗。
-  worktree 撤去 → リポ dir(`<workspace-root>/<repo>`)から実行。
-- **委譲の「green」報告でマージしない**(§3.4 と同義 — 地雷として再掲)。
+- **main を確定する操作(ローカル統合・リリース)は worktree から実行しない。**
+  main 二重 checkout 衝突で失敗する。worktree 撤去 → リポ dir
+  (`<workspace-root>/<repo>`)から実行する(`gh pr merge` 自体は §3.3 の通り禁止)。
+- **委譲の「green」報告で統合しない**(§3.4 と同義 — 地雷として再掲)。
+- **セッションからサービスを「起動」しない。** 停止中サービスの初回起動を
+  セッションが場当たりに spawn すると、終了後に残プロセス・孤児・ロック等の
+  **ごみが残る**。起動は **Excubitor(ランチャー/運用コア)か人間**に任せる
+  (Excubitor は detached spawn + reconcile + tree-kill でライフサイクル管理)。
+  セッションがやってよいのは**起動中**サービスへの再起動/反映判定まで
+  (→ スキル `service-restart`)。例外は cwd に `dev-process.md` がある
+  台帳管理下のみ(§1 / task ID で stop/restart 可能)。
+- **Rancher Desktop のエンジンは moby(dockerd) 固定。containerd に切り替えない。**
+  切り替えると `docker` CLI が全滅し、Infisical/Infra 等の compose 世界が丸ごと
+  見えなくなる(イメージ/コンテナ/volume は dockerd と containerd で別ストア)。
+  「Docker のイメージ/コンテナが消えた」はまずエンジン切替を疑う。voicevox も
+  moby で動き、k3s は未使用。詳細・復旧手順は skill `rancher-desktop-moby`。
 
 > 環境固有の罠(Windows: `.ps1` は UTF-8 BOM 必須 / `.bat` は ASCII のみ /
 > `TZ=Asia/Tokyo` は git-bash で UTC 化)は各メモリ・スキルを参照。
@@ -258,7 +313,7 @@ LUDIARS のリポジトリで**作業を始める前に最初に読む**文書�
 | データスキーマ | [`RULE_DATA_SCHEMA.md`](./RULE_DATA_SCHEMA.md) |
 | テスト | [`RULE_TEST.md`](./RULE_TEST.md) |
 | SRE・運用 | [`RULE_SRE.md`](./RULE_SRE.md) |
-| spec 記法(8 分類) | [`FORMAT_SPEC.md`](./FORMAT_SPEC.md) |
+| spec 記法(9 分類) | [`FORMAT_SPEC.md`](./FORMAT_SPEC.md) |
 | 認証記法 | [`FORMAT_AUTH.md`](./FORMAT_AUTH.md) |
 | レビュー(見るとき) | [`REVIEW.md`](./REVIEW.md) |
 

@@ -4,7 +4,7 @@
 (実装にあるのに spec が無い) と**陳腐化** (spec にあるのに実装に無い) を検知し、
 欠落分の spec を [`FORMAT_SPEC.md`](../FORMAT_SPEC.md) 準拠で自動生成するための実行プロンプト。
 
-- 記法・分類の正本: [`FORMAT_SPEC.md`](../FORMAT_SPEC.md) (8 分類・充実度の定義)
+- 記法・分類の正本: [`FORMAT_SPEC.md`](../FORMAT_SPEC.md) (9 分類・充実度の定義)
 - 充実度の評価先: [`common/REVIEW_QUALITY.md`](../common/REVIEW_QUALITY.md) §3 ドキュメント完備性
 - 生成 PR の運用: [`REVIEW.md`](../REVIEW.md)「自動修正ポリシー (AUTOFIX)」
 - 共通の設計原則: [`prompt/README.md`](./README.md)
@@ -21,7 +21,7 @@
 
 該当性の検知は **シグナル方式**: 実装側の決定的なシグナル (下表) を検索で収集し、
 spec 側の記載対象と**両方向で**突合する。シグナル → 候補 → LLM の該当性判断 → 確定、
-の順に絞ることで、「一律の枚数を課さない」(FORMAT_SPEC §9) と「見落とさない」を両立する。
+の順に絞ることで、「一律の枚数を課さない」(FORMAT_SPEC §11) と「見落とさない」を両立する。
 
 > Phase A・B の決定的部分は機械化する設計がある
 > ([`script_design/SPEC_GAPS.md`](../script_design/SPEC_GAPS.md)、実行は Anatomia)。
@@ -32,11 +32,12 @@ spec 側の記載対象と**両方向で**突合する。シグナル → 候補
 |------|-------------------|-----------|
 | `data` | `migrations/` / `*.sql` / ORM スキーマ定義 (drizzle・prisma・sqlx 等) / 永続ファイル・SQLite への書き込み | テーブル / ストア単位 |
 | `interface` | HTTP ルート定義 (router・controller) / OpenAPI・proto / WebSocket・IPC ハンドラ / ライブラリの公開 export / CLI 引数定義 / Webhook 受け口 | エンドポイント / 公開 API 単位 |
-| `feature` | ルーティング群・画面 / ページ・コマンド・常駐処理など、利用者から見た機能単位 | 1 機能 1 ファイル (FORMAT_SPEC §3) |
+| `feature` | ルーティング群・画面 / ページ・コマンド・常駐処理など、利用者から見た機能単位 | 1 機能 1 ファイル (FORMAT_SPEC §4) |
 | `setup` | `package.json` scripts / Dockerfile・compose / `.env.example`・環境変数参照 / CI workflow | 分類単位 (手順・env 一覧の網羅) |
 | `test` | テストディレクトリ / テストランナー設定 / CI のテストステップ | テスト種別単位 (RULE_TEST の種別) |
 
-`plan/` (作業ドキュメント) と `faq/`・`knowledge/` (随時追記型) は充実度対象外のため検知対象外。
+`plan/` (作業ドキュメント)、`faq/`・`knowledge/` (随時追記型)、`domains/` (機械可読なドメイン定義) は
+充実度対象外のため検知対象外。
 
 ---
 

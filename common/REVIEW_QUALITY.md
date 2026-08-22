@@ -86,11 +86,12 @@ unit / integration / E2E のレベル別にテストの有無と実効性を評�
 - [ ] 障害発生時のランブック / トラブルシューティングがあるか
 - [ ] サンプルコード / examples がビルド可能で陳腐化していないか
 - [ ] ドキュメントが実装と乖離していないか (CI で doc test / lint を回しているか)
-- [ ] `spec/` が [`FORMAT_SPEC.md`](../FORMAT_SPEC.md) の標準8分類を基本に、各フォルダの責務が説明可能な構造になっているか
+- [ ] `spec/` が [`FORMAT_SPEC.md`](../FORMAT_SPEC.md) の標準9分類 (data/domains/faq/feature/interface/knowledge/plan/setup/test) を基本に、各フォルダの責務が説明可能な構造になっているか
       — 分類は拡張可能。標準5分類の欠落は [`scripts/check-spec-structure.mjs`](../scripts/check-spec-structure.mjs) が warning を出す。
       `spec/data/` を巻き込む無アンカー `.gitignore data/` の実害だけは CI で落とす。レビューでは下記の **充実度 (該当性の判断)** に注力する
-- [ ] **ドキュメント充実度**: `plan`/`faq`/`knowledge` を除く 5 分類が、そのプロジェクトに該当する範囲をカバーしているか (DB があるのに `data/` が無い等は不充実)
+- [ ] **ドキュメント充実度**: `plan`/`faq`/`knowledge`/`domains` を除く 5 分類が、そのプロジェクトに該当する範囲をカバーしているか (DB があるのに `data/` が無い等は不充実)
       — 欠落の検知手順と自動生成は [`prompt/SPEC_GAP.md`](../prompt/SPEC_GAP.md) (シグナル方式の突合。検知レポートを本観点の指摘として転記できる)
+- [ ] `spec/domains/` の定義がコードとテストを漏れなく帰属させているか (Anatomia が別途被覆を判定)
 - [ ] `feature/` が 1 機能 1 ファイルで主要機能を網羅しているか
 
 ---

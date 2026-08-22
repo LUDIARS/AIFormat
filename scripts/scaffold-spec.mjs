@@ -7,8 +7,8 @@
  *
  * やること (すべて冪等。既存ファイルは上書きしない):
  *   1. spec/{data,feature,interface,setup,test}/ に分類の README 雛形を作る
- *      (plan/ は作業ドキュメント、faq/・knowledge/ は随時追記型なので
- *       必要時に手で作る → 雛形は撒かない)
+ *      (plan/ は作業ドキュメント、faq/・knowledge/ は随時追記型、domains/ は
+ *       機械可読なドメイン定義なので必要時に手で作る → 雛形は撒かない)
  *   2. spec/README.md に索引を置く
  *   3. .gitignore の無アンカー `data/` を `/data/` にアンカー (spec/data/ を守る)
  *
@@ -25,7 +25,7 @@ const DRY = args.includes("--dry");
 const repoDir = args.find((a) => !a.startsWith("--")) || process.cwd();
 const specDir = join(repoDir, "spec");
 
-// 各分類の README 雛形 (FORMAT_SPEC.md §2-7 の要点を 1 行ガイドで)。
+// 常設 5 分類の README 雛形 (FORMAT_SPEC.md §2, §4-5, §9-10 の要点を 1 行ガイドで)。
 const CLASSES = {
   data: `# data/ — データスキーマ
 
@@ -57,19 +57,24 @@ REST/WebSocket/gRPC/IPC/CLI のエンドポイント (メソッド・パス・re
   test: `# test/ — テスト
 
 テスト設計。種別 (ビルドチェック/ユニット/smoke/統合/E2E) ごとに「何を担保するか」、
-対象・実行方法・CI での扱い・現状・やることを書く。方針は RULE_TEST.md。
+対象・ローカルでの実行方法・リリース判定での扱い・現状・やることを書く。方針は RULE_TEST.md。
 `,
 };
 
 const INDEX = `# spec/
 
-このリポジトリの設計仕様。FORMAT_SPEC.md の標準8分類を基本に管理する
-(\`plan/\` は実装の都度作る作業ドキュメント、\`faq/\`・\`knowledge/\` は随時追記型
-なので雛形には含めない。発生した問題は \`knowledge/problems/\` に蓄積する)。
+このリポジトリの設計仕様。FORMAT_SPEC.md の標準9分類を基本に管理する
+(\`plan/\` は実装の都度作る作業ドキュメント、\`faq/\`・\`knowledge/\` は随時追記型、
+\`domains/\` はコードとテストを被覆する \`*.domain.json\` を用意するときに作るので
+雛形には含めない。発生した問題は \`knowledge/problems/\` に蓄積する)。
 
 - [data/](./data/) — データスキーマ
+- domains/ — コードの帰属先を定義する \`*.domain.json\` (必要時に作成)
+- faq/ — 調査結果・よくある質問 (必要時に作成)
 - [feature/](./feature/) — 機能概要 (1 機能 1 ファイル)
 - [interface/](./interface/) — API・外部連携の contract
+- knowledge/ — 蓄積型ナレッジ (\`problems/\` 等。必要時に作成)
+- plan/ — 設計・実装計画 (実装の都度作成)
 - [setup/](./setup/) — セットアップ
 - [test/](./test/) — テスト設計
 
