@@ -77,19 +77,38 @@ LUDIARS のリポジトリで**作業を始める前に最初に読む**文書�
 [`RULE_DATA_SCHEMA.md`](./RULE_DATA_SCHEMA.md) /
 [`FORMAT_SPEC.md`](./FORMAT_SPEC.md)。**
 
-### 2.0 どのドメインに置くか(最初に決める)
+### 2.0 着手時バンドル — ドメイン定義 → 再利用探索 → テスト計画 → 実装 → 検証 → 回帰
 
-- **新規実装(コード / UI)は、着地するドメインを決めてから書く。**
-  ドメインは**設計時点で決まる**。実装しながら「これはどのドメインか」を
-  併せて考え、**同じ PR で Anatomia のドメイン定義に登録する**
-  (`spec/domains/<name>.domain.json`。既存ドメインの守備範囲なら
-  `membership` に `pathPattern` を 1 行足す。src と tests を対で入れる)。
-- **着手前に `where`、提出前に `verify`。**
-  `anatomia.mjs where --project <name> --task "..."` で着地点を取り、
-  `git diff | anatomia.mjs verify --repo <path> --json`(exit 0 が pass)で検査する。
-  この 2 手は記憶ではなく **フック強制**(harness の Anatomia
-  `supply→verify`)で担保する(→ 「ハーネスの原則」)。
-  委託で書かせるときもこの 3 手(where → 紐づけ → verify)を指示に含める。
+コードを書く前後の手順は **1 本のパイプライン**として固定する。
+4 つの規約(ドメイン先行 / 再利用探索 / テスト対計画 / 回帰)を個別に覚えるのではなく、
+**この順で 1 束**として着手時に揃える。正本: [`RULE_CODE.md`](./RULE_CODE.md) I-0 / §6 /
+[`RULE_TEST.md`](./RULE_TEST.md) §2 / §4。
+
+| 手 | 何をするか | コマンド | 担保要件 |
+|---|---|---|---|
+| 1 | **ドメインを定義する**(未定義なら書かない) | `anatomia.mjs where --project <name> --task "..."` → 未宣言なら `spec/domains/` を先に書く | フック(supply)+ Revisor gate を強制にする |
+| 2 | **再利用できる実装を解析グラフから探す** | `anatomia.mjs find` / `context` / `callers` | フック(supply)へ候補を注入 + PR 説明への採否記載(レビュー観点) |
+| 3 | **テストを対で計画する**(Augur が Anatomia を見て設計) | Anatomia の `test-suggestions` を入力に `augur plan` | フック(supply)へ計画を注入 + Revisor 登録テスト |
+| 4 | 実装(src と tests を同じ変更単位で) | — | — |
+| 5 | **検証** | `git diff \| anatomia.mjs verify --repo <path> --json`(exit 0 が pass) | フック(verify)を block にする + Revisor gate |
+| 6 | **回帰**(変更種別に応じた既存テストを回す) | 各リポの登録テスト(`kinds` による選別) | ローカル検証ゲート(Revisor) |
+
+- **1: ドメインを定義する前にコードを書かない。** ドメインは設計時点で決まる。
+  `where` の結果が既存ドメインの守備範囲なら `membership` に `pathPattern` を
+  1 行足す(src と tests を対で)、守備範囲外なら **先に**
+  `spec/domains/<name>.domain.json` を書き、同じ PR に含める。
+  適用範囲は**今回触る範囲のドメイン**(リポ全域の台帳整備を着手条件にはしない。
+  全域の未分類は `anatomia domains program` で別途診断する)。
+- **2: 探した結果と採否を残す。** 見つけた候補を使うか否かは §6 の DRY 判断
+  (責任が同じものだけ括る)で決め、**採否と理由を PR 説明に 1 行**書く。
+  「見つけたら必ず使う」ではない — 早すぎる抽象化は §6 で禁止。
+- **3: テスト計画は実装前に立てる。** Augur は Anatomia の `test-suggestions`
+  (変更範囲・entry point・既存テスト等)を入力に計画を返す。計画に無いテストを
+  勝手に減らさない。
+- **1・5 は記憶ではなくフック強制**(harness の Anatomia `supply→verify`)で担保する。
+  supply / verify / Revisor gate が advisory のまま、または解析不能を通す状態では
+  強制済みとみなさない(→ 「ハーネスの原則」)。委託で書かせるときもこの 6 手を指示に含める
+  (Codex には hook が効かないため seed に明記)。
 - **未宣言を残すと、穴を開けた本人ではなく後からそこを触った PR が止まる**
   (`target domain is still missing`)。ドメイン JSON はパースできないと
   警告なく捨てられ「宣言し忘れ」と区別がつかない。書いたら JSON parse と
@@ -229,6 +248,7 @@ LUDIARS のリポジトリで**作業を始める前に最初に読む**文書�
 
 1. 設計済み機能を**フルセットで実装 + 配線**した(§3.1。MVP で止めない)。
 2. **テストが green**(該当アーキのテスト種別 — [`RULE_TEST.md`](./RULE_TEST.md))。
+   新機能のテストだけでなく**既存テストの回帰**も含む(§2.0 手 6 / RULE_TEST §4)。
 3. **実経路で裏取り**した(§3.4。ビルド green の自己申告で代替しない)。
 4. ローカル統合 → main リリース → クリーンアップまで通し、公開した場合は
    **origin 実体で確認**した(§3.3)。
