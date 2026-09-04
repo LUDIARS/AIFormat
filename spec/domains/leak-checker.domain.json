@@ -1,0 +1,23 @@
+{
+  "name": "leak-checker",
+  "description": "公開リポジトリへの機密流出監査。 登録語 (keyword config) を外部ファイルから読み、公開面 (メタデータ / 追跡ファイル / 公開済みコミットメッセージ) を走査して、値を報告に載せずに検出だけを返す。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)scripts/leak-checker/(?:.*/)?[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)scripts/github-public-leak-audit(?:\\.test)?\\.mjs$"
+    },
+    {
+      "pathPattern": "(^|/)scripts/github-public-history-audit\\.mjs$"
+    },
+    {
+      "pathPattern": "(^|/)scripts/env-leak-checker(?:\\.test)?\\.mjs$"
+    },
+    {
+      "pathPattern": "(^|/)spec/plan/2026-07-27-public-private-reference-audit\\.md$"
+    }
+  ]
+}

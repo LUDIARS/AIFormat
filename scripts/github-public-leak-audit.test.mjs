@@ -4,7 +4,9 @@ import test from "node:test";
 import {
   classifyRepositoryFindings,
   createRepositoryAuditError,
+  isAuditClean,
   repositoryAuditReference,
+  scanRepositoryCheckouts,
 } from "./github-public-leak-audit.mjs";
 
 const localFinding = {
@@ -86,4 +88,84 @@ test("retains public repository names and useful error details", () => {
     repository: "Example/PublicDocs",
     message: "Cannot read docs/reference.md",
   });
+});
+
+test("redacts local checkout roots from public repository errors", () => {
+  const repository = {
+    nameWithOwner: "Example/PublicDocs",
+    visibility: "public",
+  };
+  const localPath = "C:\\workspace\\PublicDocs";
+  const auditError = createRepositoryAuditError(
+    "local-scan",
+    repository,
+    new Error(`Cannot read ${localPath}\\docs\\reference.md`),
+    [],
+    { privatePaths: [localPath] },
+  );
+
+  assert.equal(auditError.message.includes(localPath), false);
+  assert.equal(auditError.message, "Cannot read [local-path]\\docs\\reference.md");
+});
+
+test("opens the gate only when findings and errors are both empty", () => {
+  assert.equal(isAuditClean([], []), true);
+  assert.equal(isAuditClean([localFinding], []), false);
+  assert.equal(isAuditClean([], [new Error("scan failed")]), false);
+});
+
+test("scans every checkout of a repository", () => {
+  const repository = {
+    name: "PublicDocs",
+    nameWithOwner: "Example/PublicDocs",
+    visibility: "public",
+  };
+  const scannedPaths = [];
+  const result = scanRepositoryCheckouts({
+    repository,
+    workspaceRepositories: [
+      { nameWithOwner: repository.nameWithOwner, path: "C:/workspace/PublicDocs-feature" },
+      { nameWithOwner: repository.nameWithOwner, path: "C:/workspace/PublicDocs" },
+    ],
+    keywords: [],
+    readTrackedFiles: () => ["docs/reference.md"],
+    scanTrackedFiles: (path) => {
+      scannedPaths.push(path);
+      return [localFinding];
+    },
+  });
+
+  assert.deepEqual(scannedPaths, [
+    "C:/workspace/PublicDocs",
+    "C:/workspace/PublicDocs-feature",
+  ]);
+  assert.equal(result.publicFindings.length, 2);
+  assert.equal(result.localPublicRepositoriesScanned, 2);
+  assert.deepEqual(result.errors, []);
+});
+
+test("fails a checkout scan closed without hiding successful checkout findings", () => {
+  const repository = {
+    name: "PublicDocs",
+    nameWithOwner: "Example/PublicDocs",
+    visibility: "public",
+  };
+  const result = scanRepositoryCheckouts({
+    repository,
+    workspaceRepositories: [
+      { nameWithOwner: repository.nameWithOwner, path: "C:/workspace/PublicDocs" },
+      { nameWithOwner: repository.nameWithOwner, path: "C:/workspace/PublicDocs-feature" },
+    ],
+    keywords: [],
+    readTrackedFiles: (path) => {
+      if (path.endsWith("-feature")) throw new Error("cannot read checkout");
+      return ["docs/reference.md"];
+    },
+    scanTrackedFiles: () => [localFinding],
+  });
+
+  assert.equal(result.publicFindings.length, 1);
+  assert.equal(result.localPublicRepositoriesScanned, 1);
+  assert.equal(result.errors.length, 1);
+  assert.equal(result.errors[0].stage, "local-scan");
 });

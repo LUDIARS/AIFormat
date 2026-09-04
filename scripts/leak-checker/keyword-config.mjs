@@ -80,9 +80,11 @@ export function loadKeywordConfig(configPath) {
   try {
     parsed = JSON.parse(readFileSync(configPath, "utf8"));
   } catch (error) {
-    throw new Error(`Cannot read keyword configuration "${configPath}": ${error.message}`, {
-      cause: error,
-    });
+    // 設定ファイルはリポジトリ外に置くため、絶対パスを共有ログへ出さない。
+    const message = error instanceof SyntaxError
+      ? "Invalid keyword configuration: malformed JSON."
+      : "Cannot read keyword configuration.";
+    throw new Error(message);
   }
 
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {

@@ -1,0 +1,14 @@
+{
+  "name": "repository-reset",
+  "description": "公開リポジトリの履歴打ち直し。 コミット順・親子関係・author/committer を保ったまま、登録語だけを全履歴から置換する。 単一 root へ潰さないことが要件。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)scripts/repository-reset/(?:.*/)?[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)scripts/github-repository-reset\\.mjs$"
+    }
+  ]
+}

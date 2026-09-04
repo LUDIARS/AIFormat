@@ -67,3 +67,45 @@ separate `SECRET_HISTORY` concern.
   inventory.
 - A final self-scan confirms that engagement-specific terms are absent from the
   committed diff.
+
+## 2026-09-04 追補: 履歴監査と、取りこぼしていた 3 点
+
+作業ツリーだけの監査では足りないことが実地で分かった。 未公開プロダクト名を
+件名に含む公開コミットが見つかり、**ファイルを消してもメッセージは残る**という
+当たり前の経路が塞がれていなかった。
+
+### 1. コミットメッセージを見る監査を足した
+
+`scripts/github-public-history-audit.mjs` + `scripts/leak-checker/git-history.mjs`。
+
+- 見るのは **リモートに到達している ref だけ** (`git log --remotes=origin`)。
+  ローカルにしかないコミットはまだ公開されていないので、監査を落とす理由にならない
+  — 直す先が「履歴書き換え」ではなく「送る前に直す」になり、対処がまるで変わる。
+- clone しない。 既にローカルにあるリポジトリだけを見るのは既存監査と同じ。
+- **報告はコミット id と登録語 id だけ。** 語そのものもメッセージ本文も載せない。
+  レポートは共有され得るので、載せると report 自体が二次的な流出になる。
+
+### 2. 同名リポジトリの取りこぼしを直した
+
+`chooseWorkspaceRepository` は同じ `owner/name` を指すローカル checkout が
+複数あっても **1 つしか返さなかった**。 実際に 2 つの checkout があるリポジトリで
+片方が監査から丸ごと外れていた。 `selectWorkspaceRepositories` に置き換え、
+見つかった checkout を全部走査する。 片方にしか無い流出でも公開の入口としては同じ。
+
+### 3. `gate` がハードコードの `true` だった
+
+`github-public-leak-audit.mjs` の JSON レポートは、findings の件数にかかわらず
+`gate: true` を返していた。 exit code は元から正しく分岐していたので、
+食い違っていたのは JSON だけ — ただし CI やダッシュボードが読むのはそちらで、
+findings がある状態を「通過」と読んでしまう。 findings と errors の両方が
+空のときだけ `true` にした。
+
+### 運用
+
+登録語 (keyword config) は従来どおり **リポジトリ外**に置き、commit しない。
+2 つの監査は同じ config を共有する:
+
+```
+node scripts/github-public-leak-audit.mjs    --org LUDIARS --workspace <root> --keywords-file <外部パス>
+node scripts/github-public-history-audit.mjs --org LUDIARS --workspace <root> --keywords-file <外部パス>
+```

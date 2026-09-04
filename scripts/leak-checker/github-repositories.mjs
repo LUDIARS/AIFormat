@@ -56,7 +56,9 @@ export function parseRepositoryInventory(stdout, organization) {
   return parsed.map((repository) => normalizeRepository(repository, organization));
 }
 
-function runCommand(
+// 同じワークスペースの git / gh をこの形で叩くモジュールが増えたので公開する。
+// 各所で spawnSync を書き直すと、shell: false や timeout の抜けが混ざる。
+export function runCommand(
   command,
   args,
   {
@@ -252,16 +254,28 @@ export function listWorkspaceRepositories(
   return repositories;
 }
 
-export function chooseWorkspaceRepository(repository, workspaceRepositories) {
+/**
+ * 同じ GitHub リポジトリを指すローカル checkout は **1 つとは限らない**。
+ * 名前違いのディレクトリに複数置かれていることがあり、1 つだけ選ぶと残りが
+ * 監査から丸ごと外れる。 2026-09-04 に実際にこれで見落としが出た
+ * (同じ owner/name を指す 2 つの checkout のうち片方しか走査していなかった)。
+ *
+ * 片方にしか無い流出でも公開の入口としては同じなので、全部返して全部見る。
+ * 並びはディレクトリ名が一致するものを先頭にして決定的にする。
+ */
+export function selectWorkspaceRepositories(repository, workspaceRepositories) {
   const matches = workspaceRepositories.filter(
     (candidate) =>
       candidate.nameWithOwner.toLocaleLowerCase()
       === repository.nameWithOwner.toLocaleLowerCase(),
   );
-  if (matches.length === 0) return null;
-  return matches.find(
+  const exact = matches.filter(
     (candidate) =>
       basename(candidate.path).toLocaleLowerCase()
       === repository.name.toLocaleLowerCase(),
-  ) ?? matches[0];
+  ).toSorted((left, right) => left.path.localeCompare(right.path));
+  const aliases = matches
+    .filter((candidate) => !exact.includes(candidate))
+    .toSorted((left, right) => left.path.localeCompare(right.path));
+  return [...exact, ...aliases];
 }

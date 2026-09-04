@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  chooseWorkspaceRepository,
+  selectWorkspaceRepositories,
   derivePrivateRepositoryKeywords,
   listTrackedFiles,
   parseGitHubRepositoryName,
@@ -117,9 +117,10 @@ test("parses HTTPS and SSH GitHub remotes", () => {
   assert.equal(parseGitHubRepositoryName("https://gitlab.com/a/b.git"), null);
 });
 
-test("prefers the canonical workspace directory when duplicate worktrees exist", () => {
+// 1 つだけ選ぶと、もう片方の checkout にしか無い流出が監査から丸ごと外れる。
+test("returns every local checkout of the same repository, canonical directory first", () => {
   assert.deepEqual(
-    chooseWorkspaceRepository(inventory[0], [
+    selectWorkspaceRepositories(inventory[0], [
       {
         nameWithOwner: "Example/PublicDocs",
         path: "C:/workspace/PublicDocs-feature",
@@ -128,10 +129,15 @@ test("prefers the canonical workspace directory when duplicate worktrees exist",
         nameWithOwner: "Example/PublicDocs",
         path: "C:/workspace/PublicDocs",
       },
+      { nameWithOwner: "Example/Other", path: "C:/workspace/Other" },
     ]),
-    {
-      nameWithOwner: "Example/PublicDocs",
-      path: "C:/workspace/PublicDocs",
-    },
+    [
+      { nameWithOwner: "Example/PublicDocs", path: "C:/workspace/PublicDocs" },
+      { nameWithOwner: "Example/PublicDocs", path: "C:/workspace/PublicDocs-feature" },
+    ],
   );
+});
+
+test("returns nothing when the repository has no local checkout", () => {
+  assert.deepEqual(selectWorkspaceRepositories(inventory[0], []), []);
 });

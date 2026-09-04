@@ -8,7 +8,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
-  chooseWorkspaceRepository,
+  selectWorkspaceRepositories,
   derivePrivateRepositoryKeywords,
   listOrganizationRepositories,
   listTrackedFiles,
@@ -116,10 +116,10 @@ function parseArguments(args) {
     }
   }
   if (options.keywordsFile && !existsSync(options.keywordsFile)) {
-    throw new Error(`Keyword file does not exist: ${options.keywordsFile}`);
+    throw new Error("The supplied --keywords-file path does not exist.");
   }
   if (options.workspacePath && !existsSync(options.workspacePath)) {
-    throw new Error(`Workspace does not exist: ${options.workspacePath}`);
+    throw new Error("The supplied --workspace path does not exist.");
   }
   return options;
 }
@@ -209,18 +209,86 @@ export function repositoryAuditReference(repository, keywords = []) {
     : redactedRepositoryLabel(repository.nameWithOwner);
 }
 
-export function createRepositoryAuditError(stage, repository, error, keywords = []) {
+export function createRepositoryAuditError(
+  stage,
+  repository,
+  error,
+  keywords = [],
+  { privatePaths = [] } = {},
+) {
   const isPublic = repository.visibility === "public";
+  let message = error instanceof Error ? error.message : String(error);
+  for (const privatePath of privatePaths) {
+    if (typeof privatePath !== "string" || privatePath.length === 0) continue;
+    for (const variant of new Set([
+      privatePath,
+      privatePath.replaceAll("\\", "/"),
+      privatePath.replaceAll("/", "\\"),
+    ])) {
+      message = message.replaceAll(variant, "[local-path]");
+    }
+  }
   return {
     stage,
     repository: repositoryAuditReference(repository, keywords),
     message: isPublic
-      ? redactKeywordValues(
-        error instanceof Error ? error.message : String(error),
-        keywords,
-      )
+      ? redactKeywordValues(message, keywords)
       : "Repository details suppressed because visibility is not confirmed public.",
   };
+}
+
+export function scanRepositoryCheckouts({
+  repository,
+  workspaceRepositories,
+  keywords,
+  ignorePatterns = [],
+  readTrackedFiles = listTrackedFiles,
+  scanTrackedFiles = scanDirectory,
+  onScan = () => {},
+}) {
+  const result = {
+    publicFindings: [],
+    errors: [],
+    localPublicRepositoriesScanned: 0,
+    localPrivateRepositoriesScanned: 0,
+    privateFindingsIgnored: 0,
+  };
+
+  for (const workspaceRepository of selectWorkspaceRepositories(
+    repository,
+    workspaceRepositories,
+  )) {
+    onScan(repository);
+    try {
+      const trackedFiles = readTrackedFiles(workspaceRepository.path);
+      const repositoryFindings = scanTrackedFiles(workspaceRepository.path, keywords, {
+        ignorePatterns,
+        relativeFiles: trackedFiles,
+        strict: true,
+      });
+      const classified = classifyRepositoryFindings(repository, repositoryFindings, keywords);
+      if (repository.visibility === "public") {
+        result.publicFindings.push(...classified.publicFindings);
+        result.localPublicRepositoriesScanned += 1;
+      } else {
+        result.privateFindingsIgnored += classified.privateFindingsIgnored;
+        result.localPrivateRepositoriesScanned += 1;
+      }
+    } catch (error) {
+      result.errors.push(createRepositoryAuditError(
+        "local-scan",
+        repository,
+        error,
+        keywords,
+        { privatePaths: [workspaceRepository.path] },
+      ));
+    }
+  }
+  return result;
+}
+
+export function isAuditClean(findings, errors) {
+  return findings.length === 0 && errors.length === 0;
 }
 
 export function runAudit(options) {
@@ -304,36 +372,23 @@ export function runAudit(options) {
   let privateFindingsIgnored = 0;
 
   for (const repository of targetRepositories) {
-    const workspaceRepository = chooseWorkspaceRepository(repository, workspaceRepositories);
-    if (!workspaceRepository) continue;
-    if (options.verbose) {
-      console.error(
-        `[scan] ${repositoryAuditReference(repository, keywords)} (${repository.visibility})`,
-      );
-    }
-
-    try {
-      const trackedFiles = listTrackedFiles(workspaceRepository.path);
-      const repositoryFindings = scanDirectory(workspaceRepository.path, keywords, {
-        ignorePatterns: localConfig.ignorePatterns,
-        relativeFiles: trackedFiles,
-        strict: true,
-      });
-      const classifiedFindings = classifyRepositoryFindings(
-        repository,
-        repositoryFindings,
-        keywords,
-      );
-      if (repository.visibility === "public") {
-        findings.push(...classifiedFindings.publicFindings);
-        localPublicRepositoriesScanned += 1;
-      } else {
-        privateFindingsIgnored += classifiedFindings.privateFindingsIgnored;
-        localPrivateRepositoriesScanned += 1;
-      }
-    } catch (error) {
-      errors.push(createRepositoryAuditError("local-scan", repository, error, keywords));
-    }
+    const checkoutResult = scanRepositoryCheckouts({
+      repository,
+      workspaceRepositories,
+      keywords,
+      ignorePatterns: localConfig.ignorePatterns,
+      onScan: () => {
+        if (!options.verbose) return;
+        console.error(
+          `[scan] ${repositoryAuditReference(repository, keywords)} (${repository.visibility})`,
+        );
+      },
+    });
+    findings.push(...checkoutResult.publicFindings);
+    errors.push(...checkoutResult.errors);
+    localPublicRepositoriesScanned += checkoutResult.localPublicRepositoriesScanned;
+    localPrivateRepositoriesScanned += checkoutResult.localPrivateRepositoriesScanned;
+    privateFindingsIgnored += checkoutResult.privateFindingsIgnored;
   }
 
   const publicRepositoriesMissingLocally = publicRepositories.filter(
@@ -368,7 +423,10 @@ export function runAudit(options) {
 
   return {
     script: "github-public-leak-audit",
-    gate: true,
+    // 判定であって定数ではない。 ハードコードの true だと、JSON を読む側
+    // (CI / ダッシュボード) は findings があっても「通過」と読む。 exit code は
+    // 元から正しく分岐していたので、食い違うのは JSON だけだった。
+    gate: isAuditClean(findings, errors),
     scope: "public metadata and Git-tracked files in existing local workspace repositories",
     organizations: options.organizations.map(
       (organization) => redactKeywordValues(organization, keywords),

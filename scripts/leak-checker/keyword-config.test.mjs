@@ -49,6 +49,19 @@ test("rejects malformed keyword configuration", () => {
   }
 });
 
+test("does not expose an external configuration path in read errors", () => {
+  const privatePath = join(tmpdir(), "private-customer-name", "missing.json");
+  assert.throws(
+    () => loadKeywordConfig(privatePath),
+    (error) => {
+      assert.equal(error.message.includes(privatePath), false);
+      assert.equal(error.cause, undefined);
+      assert.match(error.message, /cannot read keyword configuration/i);
+      return true;
+    },
+  );
+});
+
 test("rejects labels that repeat any configured keyword value", () => {
   assert.throws(
     () => normalizeKeywords([
