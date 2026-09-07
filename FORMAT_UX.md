@@ -17,6 +17,9 @@ ID、wire field の一括改名はせず、表示では「価値」「価値 ID�
 - 内容の所有者は対象プロダクト。Anatomia は紐付けと解析、Praeforma は体験設計で参照する。
   どちらの DB / キャッシュ / 生成画面にも別の編集可能な正本を作らない。
 
+Praeforma の構造データは [OKF と JSON を分離する保存形式](spec/interface/praeforma-save-format.md)
+に従う。UX 文書とアクター／シーンの構造は安定 ID で結び、配置構造からドメイン境界を導かない。
+
 ## 2. 最小メタデータ
 
 既存 OKF と共存するため `type: feature` を維持し、`ux_definition: 1` で識別する。
