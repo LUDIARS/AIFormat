@@ -1,0 +1,10 @@
+{
+  "name": "acceptance-observation",
+  "description": "サンプルの同期契約観測、コード/契約/UX を含む版の固定、実行単位の受け入れ判定を所有する。タスク完了の業務ルールは所有しない。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    { "pathPattern": "(^|/)(runtime/|demo\\.mjs$|policy\\.json$)" }
+  ],
+  "specRefs": ["spec/feature/task-completion.md"]
+}

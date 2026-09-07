@@ -1,0 +1,12 @@
+{
+  "name": "core-domain-ux",
+  "description": "プロダクトの解決する問題と勝ちの条件を定義する UX 文書の共通規約、およびドメイン・契約・版付き証跡まで対応を追える参照サンプルを所有する。Anatomia/Praeforma のサービス実装や個別プロダクトの業務モデルは所有しない。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    { "pathPattern": "(^|/)FORMAT_UX\\.md$" },
+    { "pathPattern": "(^|/)examples/core-domain-task/" },
+    { "pathPattern": "(^|/)spec/(feature|interface|tasks)/core-domain-ux[^/]*\\.md$" }
+  ],
+  "specRefs": ["FORMAT_UX.md", "spec/feature/core-domain-ux.md", "spec/interface/core-domain-ux-consumers.md"]
+}

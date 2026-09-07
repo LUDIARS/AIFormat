@@ -1,0 +1,16 @@
+{
+  "layers": [
+    { "glob": "domain/**", "layer": "domain" },
+    { "glob": "contracts/**", "layer": "contract" },
+    { "glob": "runtime/**", "layer": "observation" },
+    { "glob": "demo.mjs", "layer": "application" },
+    { "glob": "test/**", "layer": "test" }
+  ],
+  "allow": {
+    "domain": [],
+    "contract": ["domain"],
+    "observation": [],
+    "application": ["domain", "contract", "observation"],
+    "test": ["domain", "contract", "observation", "application"]
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "task-completion",
+  "description": "タスクの全受け入れ条件が満たされた場合だけ完了を許し、不足時は未達条件を返す。通知、保存、画面、検証証跡の集計は所有しない。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    { "pathPattern": "(^|/)(domain|contracts|test)/" }
+  ],
+  "specRefs": ["spec/ux/task-completion.md", "spec/feature/task-completion.md"]
+}

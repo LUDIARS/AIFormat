@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "requiredContracts": [
+    { "id": "C-1", "ux": "UX-TASK-COMPLETION", "wins": ["UX-C1", "UX-C2"], "scenarios": ["ready", "missing", "empty"] }
+  ]
+}

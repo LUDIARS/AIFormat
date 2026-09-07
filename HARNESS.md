@@ -117,6 +117,9 @@ LUDIARS のリポジトリで**作業を始める前に最初に読む**文書�
   `spec/data/ontology/` は読まれない(→ §2.4 / [`FORMAT_SPEC.md`](./FORMAT_SPEC.md))。
 - **設計レビューはドメインから入る** →
   [`common/REVIEW_DESIGN.md`](./common/REVIEW_DESIGN.md) §0。
+- **コアドメインの UX を先に読む。** `spec/ux/product.md` と `spec/ux/<domain>.md`
+  ([`FORMAT_UX.md`](./FORMAT_UX.md)) の問題・勝ち・制約を起点に、ドメインと検証を計画する。
+  Anatomia と Praeforma は同じ正本を参照する。書式導入だけを自動強制済みと扱わない。
 
 ### 2.1 単一責任 + ファイル分割(必須)
 

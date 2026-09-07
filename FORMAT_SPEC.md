@@ -22,6 +22,11 @@ spec/
 └── test/         # テスト
 ```
 
+コアドメインを持つプロダクトは拡張分類 `ux/` を追加し、`product.md` と
+`<domain>.md` に「何を解決するか / 何を勝ちとするか」を記載する。
+書式は [FORMAT_UX.md](./FORMAT_UX.md)。Anatomia と Praeforma が同じ正本を参照する。
+画面仕様や一時的な実装計画で代用しない。
+
 各フォルダはプロジェクトの構成に応じて必要なものを作る。ただし
 **`plan/`・`faq/`・`knowledge/`・`domains/` 以外の 5 分類は標準の必須候補**として扱い、未配置なら
 `check-spec-structure.mjs` が warning を出す。欠落だけでローカル検証は失敗させない
