@@ -6,7 +6,8 @@
   "membership": [
     { "pathPattern": "(^|/)FORMAT_UX\\.md$" },
     { "pathPattern": "(^|/)examples/core-domain-task/" },
-    { "pathPattern": "(^|/)spec/(feature|interface|tasks)/core-domain-ux[^/]*\\.md$" }
+    { "pathPattern": "(^|/)spec/(feature|interface)/core-domain-ux[^/]*\\.md$" },
+    { "pathPattern": "(^|/)spec/tasks/(core-domain-ux-contract-sample|2026-09-07-(codex-domain-enforcement-plan|core-domain-sample-spec-linkage|domain-contract-content-coverage|live-contract-production-adoption|shared-ux-consumer-adoption))\\.md$" }
   ],
   "specRefs": ["FORMAT_UX.md", "spec/feature/core-domain-ux.md", "spec/interface/core-domain-ux-consumers.md"]
 }

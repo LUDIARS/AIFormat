@@ -62,6 +62,15 @@ test('original exceptions propagate and predicate exceptions never count as succ
   assert.equal(JSON.stringify(events).includes('private-'), false);
 });
 
+test('an async return is refused but still leaves evidence of the call that ran', () => {
+  const events = [];
+  const wrapped = observe(() => Promise.resolve('ignored'), contract, context, events);
+  assert.throws(() => wrapped({ id: 'T', status: 'open', criteria: [{ id: 'a', met: true }] }), /async-is-outside-sample-contract/);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].phase, 'async');
+  assert.equal(events[0].state, 'violated');
+});
+
 test('a missing predicate is refused before calling the implementation', () => {
   let called = false;
   assert.throws(() => observe(() => { called = true; }, {}, context, []), /contract-missing/);

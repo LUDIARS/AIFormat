@@ -25,20 +25,26 @@ export function observe(fn, contract, context, events) {
     try { result = fn.apply(this, args); }
     catch (error) { didThrow = true; thrown = error; }
     const durationMs = performance.now() - started;
-    if (!didThrow && result && typeof result.then === 'function') {
-      throw new TypeError('async-is-outside-sample-contract');
-    }
     let state = 'observed';
     let phase = didThrow ? 'postThrow' : 'post';
-    try {
-      const outcome = didThrow ? predicates.postThrow(thrown, before, args) : predicates.post(result, before, args);
-      if (outcome !== true) state = 'violated';
-    } catch {
+    // An async return escapes this sample's contract, but the call already ran:
+    // record it as a violation instead of leaving the run without evidence.
+    const isAsync = !didThrow && Boolean(result) && typeof result.then === 'function';
+    if (isAsync) {
       state = 'violated';
-      phase = 'predicate';
+      phase = 'async';
+    } else {
+      try {
+        const outcome = didThrow ? predicates.postThrow(thrown, before, args) : predicates.post(result, before, args);
+        if (outcome !== true) state = 'violated';
+      } catch {
+        state = 'violated';
+        phase = 'predicate';
+      }
     }
     // No arguments, return values, exception messages, or free-form predicate text in evidence.
     events.push(Object.freeze({ ...identity, state, phase, durationMs }));
+    if (isAsync) throw new TypeError('async-is-outside-sample-contract');
     if (didThrow) throw thrown;
     return result;
   };

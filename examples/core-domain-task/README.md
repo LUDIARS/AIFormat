@@ -55,6 +55,8 @@ node --test examples/core-domain-task/test/domain.test.mjs examples/core-domain-
 
 引数は structured-cloneable な値に限る。述語は純粋関数であること。
 Promise / generator / callback 完了、並行実行、時間予算、描画結果の保証は対象外。
+非同期の戻り値は契約外として送出するが、既に実行された呼出しは `violated` として証跡に残す。
+送出だけを行って証跡を残さないと、証跡不足のまま complete な receipt が作れてしまうため。
 `sample=1` 相当で全呼出しを記録し、引数や戻り値をログに流さない。
 `durationMs` は monotonic clock で測る同期業務処理の所要時間 (snapshot と述語評価は含めない)。
 単一呼出しの測定値を性能目標の達成証拠にはしない。性能評価には別途母集団と予算を定義する。
