@@ -36,4 +36,5 @@ LUDIARS 全リポジトリ共通の設計ルール・レビューフォーマッ
 - [`FORMAT_SPEC.md`](./FORMAT_SPEC.md) — 仕様書記法 (spec/ の標準9分類 data/domains/faq/feature/interface/knowledge/plan/setup/test、拡張可能な分類、ドキュメント充実度)
 - [`FORMAT_AUTH.md`](./FORMAT_AUTH.md) — 認証記法
 - [`FORMAT_UX.md`](./FORMAT_UX.md) — プロダクトの問題と価値を定義し、Anatomia / Praeforma が共通参照する UX 定義書
+- [`FORMAT_HANDBOOK.md`](./FORMAT_HANDBOOK.md) — 利用者向け説明の原稿・画面対応・公開更新の共通契約
 - [`examples/core-domain-task/`](./examples/core-domain-task/README.md) — UX → ドメイン → 契約 → 版付き証跡の参照サンプル
