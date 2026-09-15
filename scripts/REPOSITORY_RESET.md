@@ -17,7 +17,14 @@ invalidate them. Pull requests and GitHub-managed metadata are not copied.
   repository.
 - Require a clean local worktree and zero forbidden references in its current
   tracked tree.
-- Rewrite configured values across all commits in the selected history.
+- Rewrite configured values across all commits in the selected history: file
+  content, commit messages, and file and directory names. Content matches become
+  `<keyword-id>`; a path match becomes the keyword id reduced to a
+  filesystem-safe segment (characters outside `A-Z a-z 0-9 . _ -` become `-`),
+  so rewritten history can still be checked out on Windows.
+- Stop when a renamed entry would collide with another entry in the same
+  directory, instead of silently dropping content. Choose distinct keyword ids
+  and prepare again.
 - Preserve and verify the source commit count.
 - Store the prepared history in an external Git bundle.
 - Refuse to overwrite an existing clean backup branch.

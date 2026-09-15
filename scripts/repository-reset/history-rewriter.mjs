@@ -15,16 +15,33 @@ function runGit(gitDirectory, args, input = undefined, encoding = "utf8") {
   return result.stdout;
 }
 
+// Path names cannot carry `<`, `>`, `:` and similar characters on common
+// filesystems, so a path replacement uses the keyword id reduced to a safe
+// segment instead of the bracketed content marker.
+function safePathSegment(id) {
+  const segment = String(id).replace(/[^A-Za-z0-9._-]/g, "-").replace(/^[.-]+/, "");
+  return segment || "redacted";
+}
+
 function replacementPatterns(keywords) {
   return [...keywords]
     .sort((left, right) => right.value.length - left.value.length)
     .map((keyword) => ({
       replacement: `<${keyword.id}>`,
+      pathReplacement: safePathSegment(keyword.id),
       pattern: new RegExp(
         keyword.value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
         "giu",
       ),
     }));
+}
+
+function scrubPathName(name, patterns) {
+  let scrubbed = name;
+  for (const { pattern, pathReplacement } of patterns) {
+    scrubbed = scrubbed.replace(pattern, pathReplacement);
+  }
+  return scrubbed;
 }
 
 function scrubTextBuffer(buffer, patterns) {
@@ -62,6 +79,7 @@ export function rewriteHistoryRef({
   const blobMap = new Map();
   const treeMap = new Map();
   const commitMap = new Map();
+  let rewrittenPathCount = 0;
 
   function rewriteBlob(oid) {
     if (blobMap.has(oid)) return blobMap.get(oid);
@@ -79,6 +97,7 @@ export function rewriteHistoryRef({
     const output = runGit(gitDirectory, ["ls-tree", "-z", oid], undefined, null);
     const records = output.toString("utf8").split("\0").filter(Boolean);
     const rewrittenRecords = [];
+    const entryNames = new Set();
     let changed = false;
 
     for (const record of records) {
@@ -92,7 +111,19 @@ export function rewriteHistoryRef({
           ? rewriteBlob(childOid)
           : childOid;
       if (rewrittenChild !== childOid) changed = true;
-      rewrittenRecords.push(`${mode} ${type} ${rewrittenChild}\t${path}\0`);
+      // File and directory names are part of the published history too.
+      const rewrittenPath = scrubPathName(path, patterns);
+      if (rewrittenPath !== path) {
+        changed = true;
+        rewrittenPathCount += 1;
+      }
+      // Two entries that collapse onto one name would silently lose content.
+      // The message names no path: either name may contain a configured value.
+      if (entryNames.has(rewrittenPath)) {
+        throw new Error("Rewritten tree would contain duplicate entry names; adjust the keyword ids.");
+      }
+      entryNames.add(rewrittenPath);
+      rewrittenRecords.push(`${mode} ${type} ${rewrittenChild}\t${rewrittenPath}\0`);
     }
 
     const rewritten = changed
@@ -157,5 +188,6 @@ export function rewriteHistoryRef({
     rewrittenBlobCount: [...blobMap]
       .filter(([before, after]) => before !== after)
       .length,
+    rewrittenPathCount,
   };
 }
