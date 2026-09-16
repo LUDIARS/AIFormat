@@ -1,6 +1,6 @@
 {
   "name": "repository-reset",
-  "description": "公開リポジトリの履歴打ち直し。 コミット順・親子関係・author/committer を保ったまま、登録語だけを全履歴から置換する。 単一 root へ潰さないことが要件。",
+  "description": "公開リポジトリの履歴打ち直し。コミットグラフを保つ語の置換、bundle準備、Revisor向けcreate-only handoffと公開後照合を所有する。承認はCc、公開はRevisorが所有する。仕様: spec/feature/repository-reset-handoff.md (AF-RESET-HANDOFF)。",
   "presetRules": [],
   "templateRules": [],
   "membership": [

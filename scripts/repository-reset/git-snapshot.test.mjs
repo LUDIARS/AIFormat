@@ -88,6 +88,27 @@ function repositoryWithRemote(prefix) {
   return { root, repositoryPath, remotePath, bundlePath: join(root, "clean-history.bundle") };
 }
 
+test("bundle-only preparation does not publish any remote ref", () => {
+  const fixture = repositoryWithRemote("aiformat-reset-bundle-only-");
+  try {
+    writeFileSync(join(fixture.repositoryPath, "README.md"), "private-value\n");
+    git(fixture.repositoryPath, "add", "README.md");
+    git(fixture.repositoryPath, "commit", "-m", "initial private-value");
+    const source = git(fixture.repositoryPath, "rev-parse", "HEAD");
+    const prepared = prepareCleanHistory(fixture.repositoryPath, {
+      branch: "clean/history", bundlePath: fixture.bundlePath, publishCleanBranch: false,
+      keywords: [{ id: "term-1", value: "private-value", match: "substring" }],
+    });
+    assert.equal(prepared.sourceTip, source);
+    assert.notEqual(prepared.commit, source);
+    assert.equal(git(fixture.remotePath, "for-each-ref", "--format=%(refname)"), "");
+    assert.equal(git(fixture.repositoryPath, "bundle", "list-heads", fixture.bundlePath),
+      `${prepared.commit} refs/heads/cleaned`);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("rewrites configured values in file and directory names with filesystem-safe segments", () => {
   const fixture = repositoryWithRemote("aiformat-reset-paths-");
   try {

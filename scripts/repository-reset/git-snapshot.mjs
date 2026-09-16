@@ -45,19 +45,20 @@ export function prepareCleanHistory(
     bundlePath,
     keywords,
     remote = "origin",
+    publishCleanBranch = true,
   },
 ) {
   assertCleanWorktree(repositoryPath);
   if (existsSync(bundlePath)) {
     throw new Error("External history bundle already exists; refusing to overwrite it.");
   }
-  const remoteUrl = gitTransportUrl(
+  const remoteUrl = publishCleanBranch ? gitTransportUrl(
     git(repositoryPath, ["remote", "get-url", remote]),
-  );
-  const existing = git(
+  ) : null;
+  const existing = publishCleanBranch ? git(
     repositoryPath,
     ["ls-remote", "--heads", remoteUrl, `refs/heads/${branch}`],
-  );
+  ) : "";
   if (existing) {
     throw new Error("Clean history branch already exists; refusing to overwrite it.");
   }
@@ -91,25 +92,28 @@ export function prepareCleanHistory(
       bundlePath,
       "refs/heads/cleaned",
     ]);
-    git(
-      temporaryRepository,
-      [
-        "push",
-        remoteUrl,
-        `refs/heads/cleaned:refs/heads/${branch}`,
-      ],
-      { timeoutMs: 300_000 },
-    );
-    const remoteCommit = git(
-      temporaryRepository,
-      ["ls-remote", "--heads", remoteUrl, `refs/heads/${branch}`],
-    ).split(/\s+/)[0];
-    if (remoteCommit !== rewritten.rewrittenTip) {
-      throw new Error("Remote clean history branch does not match the rewritten tip.");
+    if (publishCleanBranch) {
+      git(
+        temporaryRepository,
+        [
+          "push",
+          remoteUrl,
+          `refs/heads/cleaned:refs/heads/${branch}`,
+        ],
+        { timeoutMs: 300_000 },
+      );
+      const remoteCommit = git(
+        temporaryRepository,
+        ["ls-remote", "--heads", remoteUrl, `refs/heads/${branch}`],
+      ).split(/\s+/)[0];
+      if (remoteCommit !== rewritten.rewrittenTip) {
+        throw new Error("Remote clean history branch does not match the rewritten tip.");
+      }
     }
 
     return {
       bundlePath,
+      sourceTip: rewritten.sourceTip,
       commit: rewritten.rewrittenTip,
       commitCount: rewritten.commitCount,
       rewrittenBlobCount: rewritten.rewrittenBlobCount,
