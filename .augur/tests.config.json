@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "repository": "LUDIARS/AIFormat",
+  "defaultBus": "local",
+  "runners": { "command": {} },
+  "quota": { "default": { "max": 12 } },
+  "timeoutMs": 120000
+}

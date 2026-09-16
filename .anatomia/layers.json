@@ -1,0 +1,8 @@
+{
+  "$comment": "The repository-reset folder is an application workflow module, including its local test adapters. Classification is module-based, so do not give files in that module conflicting layers. Other AIFormat modules are outside this declaration's scope.",
+  "layers": [
+    { "glob": "scripts/github-repository-reset.mjs", "layer": "application" },
+    { "glob": "scripts/repository-reset/*", "layer": "application" }
+  ],
+  "mergeCouplingThreshold": 1
+}

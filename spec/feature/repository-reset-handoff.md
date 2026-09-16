@@ -119,3 +119,7 @@ verify の成功は remote の検証結果であり、Revisor の台帳確認を
 CLI: `scripts/github-repository-reset.mjs`。引き継ぎ文書: `scripts/repository-reset/publication-handoff.mjs`。
 remote identity/ref 判定: `scripts/repository-reset/migration-observation.mjs`。bundle-only: `git-snapshot.mjs`。
 既存の非session向け migrate/resume を残すが、この運用では使わない。ツール自体は Cc の承認を作らずサービスも再起動しない。
+
+テスト5本のAugur登録と解析所見の根拠は
+[履歴移行の台帳と解析所見](../test/repository-reset-validation.md) (AF-RESET-VALIDATION) を参照。
+台帳への登録は実行成功の証拠ではなく、Revisorの実行結果で別途確認する。
