@@ -41,6 +41,33 @@ Node.js を利用するプロジェクトは次の宣言を揃える。
 | バリデーション | Zod |
 | ランタイム | Node.js 24.17.0 LTS |
 
+### 常駐プロセスの起動形 (事前コンパイル JS のみ)
+
+常駐するサーバ・ワーカーは **事前コンパイルした JS を `node <js>` で直接起動する**
+(neco 2026-10-12、全サービス共通)。
+
+- ビルド (TypeScript → `dist/` への事前コンパイル) は Excubitor の `build_command` で起動前に行い、
+  `command` は `node dist/<entry>.js` (必要なら `--env-file-if-exists=.env` 等の node フラグ) だけにする。
+- `command` と、その中から呼ぶ script に **tsx / `tsx watch` / npm (`npm run` / `npm start`) /
+  `node --run` / `vite preview` を挟まない**。
+- tsx はテストと一回限りの CLI (セットアップスクリプト等) だけで使う。コード変更の反映は
+  Excubitor の再起動 (build_command → command) で行い、ファイル監視による自動再起動は使わない。
+
+理由 (本社 Windows での実測、Node 24):
+
+| 起動形 | 常駐プロセス | 上乗せ (private) |
+|--------|--------------|------------------|
+| `node dist/x.js` | node 1 本 | なし (Node 単体の下限は 25〜30MB、RSS 60MB) |
+| `node --run start` | node(--run) → cmd.exe → node | 約 30MB (node 1 本余分) |
+| `npm run start` | npm-cli(node) → cmd.exe → node | 約 60MB |
+| `tsx x.ts` | tsx 親 node → 子 node + esbuild.exe | 約 135MB (親 56 + ローダー 18 + esbuild 61) |
+
+Node の V8 フラグ (`--max-semi-space-size` / `--jitless` 等) では下限は下がらない。
+TypeScript を bundle するときは、共有ライブラリ (Hono 等) が 1 コピーになるよう entry をまとめて
+splitting し、native addon (better-sqlite3 等) は external にして出力先から解決できる
+`node_modules` に入れる。`import.meta.url` 基準のパスは `dist/` からソース基準へ戻して組み立てる。
+適用例: VGA-GLAB/GLAB-Hub (`scripts/build-server.mjs`、`startup/runtime-paths.ts`)。
+
 ## フロントエンド (Web)
 
 LUDIARS ファミリーの Web サービスはすべて **SPA (Single Page Application)** 構成とする。
