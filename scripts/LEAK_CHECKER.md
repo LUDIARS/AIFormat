@@ -40,6 +40,44 @@ Reports contain `id`, not `value`. Use neutral IDs that do not reveal the privat
 term. `match` is `substring` by default or `token` for word-boundary matching.
 `ignore_patterns` uses repository-relative `*`, `**`, and `?` globs.
 
+## Host identifiers: IP, PC path, machine name, site name
+
+Besides the keyword list, both commands check four kinds of host-identifying
+text. Use them to catch hostnames, LAN / Tailscale addresses, SSH users, and
+absolute PC paths left in runbooks.
+
+| Kind | Detection | Not reported |
+|---|---|---|
+| `private-ip` | built in: concrete hosts in 10/8, 172.16/12, 192.168/16, 100.64/10 (Tailscale), 169.254/16 | 127/8, 0.0.0.0, documentation ranges, public addresses, CIDR notation such as `/24`, `.0` / `.255` |
+| `local-path` | built in: Windows drive absolute paths, `/Users/<name>/`, `/home/<name>/` | `<...>`, `${VAR}`, `%VAR%`, `{...}` placeholders, `~` paths, URL paths |
+| `machine-name` | keywords with `"category": "machine-name"` | — |
+| `site-name` | keywords with `"category": "site-name"` | — |
+
+The patterns are built in on purpose: the keyword file never contains regular
+expressions, so a malformed pattern cannot silently disable the check.
+
+```json
+{
+  "keywords": [
+    { "id": "machine-1", "value": "<private host name>", "category": "machine-name" }
+  ],
+  "categories": { "private-ip": "advisory", "local-path": "off", "site-name": "enforce" }
+}
+```
+
+`categories` chooses `advisory`, `enforce`, or `off` per kind. An unlisted kind
+is `advisory`. Unknown kinds or modes are configuration errors. Keywords without
+a `category` and derived private-repository names keep failing the gate as before.
+
+Advisory findings never change the exit status. `github-public-leak-audit.mjs`
+puts them in `advisoryFindings` and keeps gating findings in `findings`. It also
+reports `metrics.findingsByCategory` and `metrics.findingsByRepository` (counts
+by kind for each public repository). Findings carry the kind and id
+(`kinds`, `keywordIds`) and the file and line, never the matched value.
+
+Revisor (`src/host-identifiers.mjs`) uses the same rules for local PR review.
+Change both together.
+
 ## Local scan
 
 ```powershell

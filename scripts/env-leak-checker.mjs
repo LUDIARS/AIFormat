@@ -28,6 +28,12 @@ import { fileURLToPath } from "node:url";
 
 import { loadKeywordConfig } from "./leak-checker/keyword-config.mjs";
 import { scanDirectory } from "./leak-checker/scanner.mjs";
+import {
+  activeDetectors,
+  activeKeywords,
+  countByKind,
+  partitionFindings,
+} from "./leak-checker/category-policy.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const LOCAL_CONFIG_PATH = join(__dirname, "env-leak-keywords.local.json");
@@ -46,19 +52,31 @@ function log(...args) {
 
 function loadKeywords(configPath) {
   if (!existsSync(configPath)) {
-    return { keywords: [], ignorePatterns: [] };
+    return { keywords: [], ignorePatterns: [], categories: {} };
   }
   return loadKeywordConfig(configPath);
+}
+
+// 既定 (advisory) と違う扱いだけを書き戻す。 add / remove で categories が消えないように。
+function declaredCategories(categories = {}) {
+  const changed = Object.entries(categories).filter(([, mode]) => mode !== "advisory");
+  return changed.length > 0 ? { categories: Object.fromEntries(changed) } : {};
 }
 
 function saveKeywords(configPath, config) {
   const serializable = {
     keywords: config.keywords.map((keyword) =>
-      keyword.id === keyword.value && keyword.match === "substring"
+      keyword.id === keyword.value && keyword.match === "substring" && !keyword.category
         ? keyword.value
-        : { id: keyword.id, value: keyword.value, match: keyword.match }
+        : {
+          id: keyword.id,
+          value: keyword.value,
+          match: keyword.match,
+          ...(keyword.category ? { category: keyword.category } : {}),
+        }
     ),
     ignore_patterns: config.ignorePatterns,
+    ...declaredCategories(config.categories),
   };
   writeFileSync(configPath, `${JSON.stringify(serializable, null, 2)}\n`, "utf8");
 }
@@ -66,17 +84,21 @@ function saveKeywords(configPath, config) {
 // ── スキャン実行 ──────────────────────────────────────────
 
 function scanRepo(repoPath, config) {
-  const { keywords, ignorePatterns } = config;
-  if (!keywords.length) return [];
+  const { ignorePatterns, categories = {} } = config;
+  const keywords = activeKeywords(config.keywords, categories);
+  const detectors = activeDetectors(categories);
+  if (!keywords.length && !detectors.length) return [];
 
   const repoName = basename(repoPath);
   log(`Scanning: ${repoName} (${repoPath})`);
   log(`  keyword labels: ${keywords.map((keyword) => keyword.id).join(", ")}`);
+  log(`  detectors: ${detectors.map((detector) => detector.id).join(", ")}`);
 
   const t0 = performance.now();
   const results = scanDirectory(repoPath, keywords, {
     ignorePatterns,
     includeContent: SHOW_CONTENT,
+    detectors,
   });
   const elapsed = (performance.now() - t0).toFixed(0);
   log(`  ${repoName}: ${results.length} hit(s) in ${elapsed}ms`);
@@ -166,26 +188,31 @@ function runCli(args, configPath) {
         console.log(`Target: ${target}`);
         const hits = scanRepo(target, config);
         printHits(basename(target), hits);
-        console.log(`\nTotal: ${hits.length} hit(s)`);
-        return hits.length > 0 ? 1 : 0;
+        const { enforced } = partitionFindings(hits, config.categories);
+        console.log(`\nTotal: ${hits.length} hit(s), ${enforced.length} gating${formatKindCounts(hits)}`);
+        return enforced.length > 0 ? 1 : 0;
       } else {
         // ディレクトリ内の全リポジトリ
         const repos = listRepos(target);
         console.log(`Target: ${repos.length} repositories in ${target}`);
         log(`Repos: ${repos.map((r) => r.name).join(", ")}`);
-        let total = 0;
+        const allHits = [];
         let clean = 0;
         for (const repo of repos) {
           const hits = scanRepo(repo.path, config);
           if (hits.length) {
             printHits(repo.name, hits);
-            total += hits.length;
+            for (const hit of hits) allHits.push(hit);
           } else {
             clean++;
           }
         }
-        console.log(`\nTotal: ${total} hit(s) across ${repos.length} repositories (${clean} clean)`);
-        return total > 0 ? 1 : 0;
+        const { enforced } = partitionFindings(allHits, config.categories);
+        console.log(
+          `\nTotal: ${allHits.length} hit(s), ${enforced.length} gating across ${repos.length} repositories`
+          + ` (${clean} clean)${formatKindCounts(allHits)}`,
+        );
+        return enforced.length > 0 ? 1 : 0;
       }
     }
 
@@ -195,6 +222,12 @@ function runCli(args, configPath) {
       );
       return 2;
   }
+}
+
+// advisory の種類 (既定) は件数を出すだけで、 終了コードを 1 にしない。
+function formatKindCounts(hits) {
+  const counts = Object.entries(countByKind(hits));
+  return counts.length > 0 ? ` [${counts.map(([kind, count]) => `${kind}=${count}`).join(", ")}]` : "";
 }
 
 function printHits(repoName, hits) {

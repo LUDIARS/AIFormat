@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 
+import {
+  KEYWORD_CATEGORY_KINDS,
+  normalizeCategoryModes,
+} from "./host-identifiers.mjs";
+
 function opaqueKeywordId(value) {
   const digest = createHash("sha256")
     .update(value.toLocaleLowerCase(), "utf8")
@@ -34,7 +39,12 @@ function normalizeKeyword(keyword, index) {
   if (match !== "substring" && match !== "token") {
     throw new Error(`Invalid keyword match at index ${index}: expected "substring" or "token".`);
   }
-  return { id, value, match };
+  // machine-name / site-name の固定語は category を持つ。 category の無い語は従来どおり。
+  const category = keyword.category;
+  if (category !== undefined && !KEYWORD_CATEGORY_KINDS.includes(category)) {
+    throw new Error(`Invalid keyword category at index ${index}.`);
+  }
+  return category ? { id, value, match, category } : { id, value, match };
 }
 
 export function normalizeKeywords(keywords) {
@@ -99,5 +109,6 @@ export function loadKeywordConfig(configPath) {
   return {
     keywords: normalizeKeywords(parsed.keywords ?? []),
     ignorePatterns: ignorePatterns.map((pattern) => pattern.trim()).filter(Boolean),
+    categories: normalizeCategoryModes(parsed.categories),
   };
 }

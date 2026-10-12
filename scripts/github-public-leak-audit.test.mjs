@@ -169,3 +169,29 @@ test("fails a checkout scan closed without hiding successful checkout findings",
   assert.equal(result.errors.length, 1);
   assert.equal(result.errors[0].stage, "local-scan");
 });
+
+test("passes built-in detectors to the scan and keeps the kinds of public findings", () => {
+  const repository = { nameWithOwner: "Example/PublicDocs", name: "PublicDocs", visibility: "public" };
+  const detectors = [{ id: "private-ip", kind: "private-ip", test: () => true }];
+  let received = null;
+  const result = scanRepositoryCheckouts({
+    repository,
+    workspaceRepositories: [{ nameWithOwner: repository.nameWithOwner, path: "workspace/PublicDocs" }],
+    keywords: [],
+    detectors,
+    readTrackedFiles: () => ["docs/runbook.md"],
+    scanTrackedFiles: (_path, _keywords, options) => {
+      received = options.detectors;
+      return [{ file: "docs/runbook.md", line: 3, keywordIds: ["private-ip"], kinds: ["private-ip"] }];
+    },
+  });
+  assert.equal(received, detectors);
+  assert.deepEqual(result.publicFindings, [{
+    repository: "Example/PublicDocs",
+    surface: "local-tracked-files",
+    path: "docs/runbook.md",
+    line: 3,
+    keywordIds: ["private-ip"],
+    kinds: ["private-ip"],
+  }]);
+});

@@ -23,6 +23,13 @@ import {
   redactKeywordValues,
 } from "./leak-checker/keyword-config.mjs";
 import { scanDirectory } from "./leak-checker/scanner.mjs";
+import {
+  activeDetectors,
+  activeKeywords,
+  countByKind,
+  countByRepositoryAndKind,
+  partitionFindings,
+} from "./leak-checker/category-policy.mjs";
 
 const USAGE = `Usage:
   node github-public-leak-audit.mjs --org <organization> [--org <organization> ...]
@@ -141,6 +148,7 @@ function mergeKeywords(...groups) {
       id,
       value: keyword.value,
       match: keyword.match,
+      ...(keyword.category ? { category: keyword.category } : {}),
     });
   }
   return [...byValue.values()];
@@ -157,6 +165,7 @@ function printHumanReport(report) {
     `Public repositories missing locally: ${report.metrics.publicRepositoriesMissingLocally}`,
   );
   console.log(`Keyword labels checked: ${report.metrics.keywordLabelsChecked}`);
+  printCategoryCounts(report.metrics);
   if (report.findings.length === 0) {
     console.log("CLEAN: no public private-reference findings.");
   } else {
@@ -184,6 +193,17 @@ function printHumanReport(report) {
   }
 }
 
+// 種類別・リポジトリ別の件数だけを出す。 advisory の所見の場所は JSON レポートにだけ置く。
+function printCategoryCounts(metrics) {
+  const kinds = Object.entries(metrics.findingsByCategory ?? {});
+  if (kinds.length === 0) return;
+  console.log(`Findings by category: ${kinds.map(([kind, count]) => `${kind}=${count}`).join(", ")}`);
+  console.log(`Advisory findings (not gating): ${metrics.advisoryFindings}`);
+  for (const [repository, counts] of Object.entries(metrics.findingsByRepository ?? {})) {
+    console.log(`  ${repository}: ${Object.entries(counts).map(([kind, count]) => `${kind}=${count}`).join(", ")}`);
+  }
+}
+
 export function classifyRepositoryFindings(repository, repositoryFindings, keywords = []) {
   if (repository.visibility !== "public") {
     return {
@@ -198,6 +218,7 @@ export function classifyRepositoryFindings(repository, repositoryFindings, keywo
       path: redactKeywordValues(finding.file, keywords),
       line: finding.line,
       keywordIds: finding.keywordIds,
+      ...(finding.kinds ? { kinds: finding.kinds } : {}),
     })),
     privateFindingsIgnored: 0,
   };
@@ -242,6 +263,7 @@ export function scanRepositoryCheckouts({
   workspaceRepositories,
   keywords,
   ignorePatterns = [],
+  detectors = [],
   readTrackedFiles = listTrackedFiles,
   scanTrackedFiles = scanDirectory,
   onScan = () => {},
@@ -265,10 +287,12 @@ export function scanRepositoryCheckouts({
         ignorePatterns,
         relativeFiles: trackedFiles,
         strict: true,
+        detectors,
       });
       const classified = classifyRepositoryFindings(repository, repositoryFindings, keywords);
       if (repository.visibility === "public") {
-        result.publicFindings.push(...classified.publicFindings);
+        // 組込み検出器は 1 リポジトリで数万件を返し得る。 spread はスタック上限を超える。
+        for (const finding of classified.publicFindings) result.publicFindings.push(finding);
         result.localPublicRepositoriesScanned += 1;
       } else {
         result.privateFindingsIgnored += classified.privateFindingsIgnored;
@@ -318,11 +342,14 @@ export function runAudit(options) {
 
   const localConfig = options.keywordsFile
     ? loadKeywordConfig(options.keywordsFile)
-    : { keywords: [], ignorePatterns: [] };
+    : { keywords: [], ignorePatterns: [], categories: {} };
+  const categories = localConfig.categories ?? {};
   const keywords = mergeKeywords(
-    localConfig.keywords,
+    activeKeywords(localConfig.keywords, categories),
     derivePrivateRepositoryKeywords(repositories),
   );
+  // 組込みの検出器 (private-ip / local-path) は辞書に語が無くても動く。 既定は advisory。
+  const detectors = activeDetectors(categories);
   if (keywords.length === 0) {
     throw new Error("No keywords available from the local config or private repository inventory.");
   }
@@ -377,6 +404,7 @@ export function runAudit(options) {
       workspaceRepositories,
       keywords,
       ignorePatterns: localConfig.ignorePatterns,
+      detectors,
       onScan: () => {
         if (!options.verbose) return;
         console.error(
@@ -384,7 +412,7 @@ export function runAudit(options) {
         );
       },
     });
-    findings.push(...checkoutResult.publicFindings);
+    for (const finding of checkoutResult.publicFindings) findings.push(finding);
     errors.push(...checkoutResult.errors);
     localPublicRepositoriesScanned += checkoutResult.localPublicRepositoriesScanned;
     localPrivateRepositoriesScanned += checkoutResult.localPrivateRepositoriesScanned;
@@ -421,12 +449,13 @@ export function runAudit(options) {
     ));
   }
 
+  const { enforced: gatingFindings, advisory: advisoryFindings } = partitionFindings(findings, categories);
   return {
     script: "github-public-leak-audit",
     // 判定であって定数ではない。 ハードコードの true だと、JSON を読む側
     // (CI / ダッシュボード) は findings があっても「通過」と読む。 exit code は
     // 元から正しく分岐していたので、食い違うのは JSON だけだった。
-    gate: isAuditClean(findings, errors),
+    gate: isAuditClean(gatingFindings, errors),
     scope: "public metadata and Git-tracked files in existing local workspace repositories",
     organizations: options.organizations.map(
       (organization) => redactKeywordValues(organization, keywords),
@@ -434,7 +463,9 @@ export function runAudit(options) {
     targetOrganizations: options.targetOrganizations.map(
       (organization) => redactKeywordValues(organization, keywords),
     ),
-    findings,
+    findings: gatingFindings,
+    // 種類の扱いが advisory の所見。 ゲートは落とさない。 場所は持つが値は持たない。
+    advisoryFindings,
     errors,
     skipped: {
       publicRepositoriesMissingLocally: publicRepositoriesMissingLocally.map(
@@ -448,6 +479,10 @@ export function runAudit(options) {
       publicRepositoriesMissingLocally: publicRepositoriesMissingLocally.length,
       unclassifiedLocalRepositories: unclassifiedLocalRepositories.length,
       keywordLabelsChecked: keywords.length,
+      detectorsChecked: detectors.map(({ id }) => id),
+      advisoryFindings: advisoryFindings.length,
+      findingsByCategory: countByKind(findings),
+      findingsByRepository: countByRepositoryAndKind(findings),
     },
   };
 }

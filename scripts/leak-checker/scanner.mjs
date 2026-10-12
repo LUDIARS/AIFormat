@@ -216,7 +216,13 @@ function includesKeyword(text, keyword) {
   return false;
 }
 
-export function createTextScanner(keywords, { includeContent = false } = {}) {
+/**
+ * 行ごとの所見を返す scanner を作る。 `detectors` は組込みの種類つき検出器
+ * (`host-identifiers.mjs` の `enabledBuiltinDetectors`)。 所見の `kinds` には当たった種類を
+ * 載せる (category の無い従来の語は `keyword`)。 従来の語だけの所見は `kinds` を持たない。
+ * 値そのものは所見に載せない。
+ */
+export function createTextScanner(keywords, { includeContent = false, detectors = [] } = {}) {
   const normalizedKeywords = normalizeKeywords(keywords);
   const searchableKeywords = normalizedKeywords.map((keyword) => ({
     ...keyword,
@@ -228,16 +234,16 @@ export function createTextScanner(keywords, { includeContent = false } = {}) {
     const fileKeywords = searchableKeywords.filter((keyword) =>
       includesKeyword(lowercaseContent, keyword)
     );
-    if (fileKeywords.length === 0) return [];
+    if (fileKeywords.length === 0 && detectors.length === 0) return [];
 
     const findings = [];
     const lines = content.split(/\r?\n/);
     for (let index = 0; index < lines.length; index += 1) {
       const lowercaseLine = lines[index].toLocaleLowerCase();
-      const keywordIds = fileKeywords
-        .filter((keyword) => includesKeyword(lowercaseLine, keyword))
-        .map((keyword) => keyword.id);
-      if (keywordIds.length === 0) continue;
+      const matchedKeywords = fileKeywords
+        .filter((keyword) => includesKeyword(lowercaseLine, keyword));
+      const matchedDetectors = detectors.filter((detector) => detector.test(lines[index]));
+      if (matchedKeywords.length === 0 && matchedDetectors.length === 0) continue;
 
       const finding = {
         file: redactKeywordValues(
@@ -245,8 +251,17 @@ export function createTextScanner(keywords, { includeContent = false } = {}) {
           normalizedKeywords,
         ),
         line: index + 1,
-        keywordIds,
+        keywordIds: [
+          ...matchedKeywords.map((keyword) => keyword.id),
+          ...matchedDetectors.map((detector) => detector.id),
+        ],
       };
+      const kinds = [...new Set([
+        ...matchedKeywords.map((keyword) => keyword.category ?? "keyword"),
+        ...matchedDetectors.map((detector) => detector.kind),
+      ])];
+      // 従来の語だけの所見は形を変えない (kinds 無し = keyword)。
+      if (kinds.some((kind) => kind !== "keyword")) finding.kinds = kinds;
       if (includeContent) finding.content = lines[index].trim().slice(0, 200);
       findings.push(finding);
     }
@@ -263,14 +278,15 @@ export function scanDirectory(
     ignoreNestedRepositories = false,
     relativeFiles = null,
     strict = false,
+    detectors = [],
   } = {},
 ) {
   const normalizedKeywords = normalizeKeywords(keywords);
-  if (normalizedKeywords.length === 0) return [];
+  if (normalizedKeywords.length === 0 && detectors.length === 0) return [];
 
   const ignoreExpressions = ignorePatterns.map(globToRegularExpression);
   const shouldIgnorePath = createPathFilter(ignorePatterns);
-  const scanText = createTextScanner(normalizedKeywords, { includeContent });
+  const scanText = createTextScanner(normalizedKeywords, { includeContent, detectors });
   const findings = [];
   const files = relativeFiles === null
     ? walkDirectory(
@@ -290,7 +306,8 @@ export function scanDirectory(
   for (const { fullPath, relativePath } of files) {
     const content = readTextFile(fullPath, strict);
     if (content === null) continue;
-    findings.push(...scanText(relativePath, content));
+    // 1 ファイルの所見が多いと spread はスタック上限を超える。
+    for (const finding of scanText(relativePath, content)) findings.push(finding);
   }
 
   return findings;
