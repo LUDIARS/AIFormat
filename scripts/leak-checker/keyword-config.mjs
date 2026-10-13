@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import {
   KEYWORD_CATEGORY_KINDS,
   normalizeCategoryModes,
+  normalizeWorkspaceRoots,
 } from "./host-identifiers.mjs";
 
 function opaqueKeywordId(value) {
@@ -110,5 +111,7 @@ export function loadKeywordConfig(configPath) {
     keywords: normalizeKeywords(parsed.keywords ?? []),
     ignorePatterns: ignorePatterns.map((pattern) => pattern.trim()).filter(Boolean),
     categories: normalizeCategoryModes(parsed.categories),
+    // local-path の除外 (ワークスペースルート配下だけの行) に使う。 PC のパスなので辞書にだけ置く。
+    workspaceRoots: normalizeWorkspaceRoots(parsed.workspaceRoots),
   };
 }

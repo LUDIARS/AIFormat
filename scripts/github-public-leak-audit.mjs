@@ -30,6 +30,7 @@ import {
   countByRepositoryAndKind,
   partitionFindings,
 } from "./leak-checker/category-policy.mjs";
+import { normalizeWorkspaceRoots } from "./leak-checker/host-identifiers.mjs";
 
 const USAGE = `Usage:
   node github-public-leak-audit.mjs --org <organization> [--org <organization> ...]
@@ -264,6 +265,7 @@ export function scanRepositoryCheckouts({
   keywords,
   ignorePatterns = [],
   detectors = [],
+  exclusions = null,
   readTrackedFiles = listTrackedFiles,
   scanTrackedFiles = scanDirectory,
   onScan = () => {},
@@ -288,6 +290,7 @@ export function scanRepositoryCheckouts({
         relativeFiles: trackedFiles,
         strict: true,
         detectors,
+        exclusions,
       });
       const classified = classifyRepositoryFindings(repository, repositoryFindings, keywords);
       if (repository.visibility === "public") {
@@ -342,7 +345,7 @@ export function runAudit(options) {
 
   const localConfig = options.keywordsFile
     ? loadKeywordConfig(options.keywordsFile)
-    : { keywords: [], ignorePatterns: [], categories: {} };
+    : { keywords: [], ignorePatterns: [], categories: {}, workspaceRoots: [] };
   const categories = localConfig.categories ?? {};
   const keywords = mergeKeywords(
     activeKeywords(localConfig.keywords, categories),
@@ -350,6 +353,13 @@ export function runAudit(options) {
   );
   // 組込みの検出器 (private-ip / local-path) は辞書に語が無くても動く。 既定は advisory。
   const detectors = activeDetectors(categories);
+  // 監査は --workspace の配下を走査するので、 そのパス自体もワークスペースルートとして扱う。
+  const exclusions = {
+    workspaceRoots: normalizeWorkspaceRoots([
+      ...(localConfig.workspaceRoots ?? []),
+      options.workspacePath,
+    ]),
+  };
   if (keywords.length === 0) {
     throw new Error("No keywords available from the local config or private repository inventory.");
   }
@@ -405,6 +415,7 @@ export function runAudit(options) {
       keywords,
       ignorePatterns: localConfig.ignorePatterns,
       detectors,
+      exclusions,
       onScan: () => {
         if (!options.verbose) return;
         console.error(

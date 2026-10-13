@@ -52,7 +52,7 @@ function log(...args) {
 
 function loadKeywords(configPath) {
   if (!existsSync(configPath)) {
-    return { keywords: [], ignorePatterns: [], categories: {} };
+    return { keywords: [], ignorePatterns: [], categories: {}, workspaceRoots: [] };
   }
   return loadKeywordConfig(configPath);
 }
@@ -77,6 +77,7 @@ function saveKeywords(configPath, config) {
     ),
     ignore_patterns: config.ignorePatterns,
     ...declaredCategories(config.categories),
+    ...(config.workspaceRoots?.length ? { workspaceRoots: config.workspaceRoots } : {}),
   };
   writeFileSync(configPath, `${JSON.stringify(serializable, null, 2)}\n`, "utf8");
 }
@@ -99,6 +100,7 @@ function scanRepo(repoPath, config) {
     ignorePatterns,
     includeContent: SHOW_CONTENT,
     detectors,
+    exclusions: { workspaceRoots: config.workspaceRoots ?? [] },
   });
   const elapsed = (performance.now() - t0).toFixed(0);
   log(`  ${repoName}: ${results.length} hit(s) in ${elapsed}ms`);

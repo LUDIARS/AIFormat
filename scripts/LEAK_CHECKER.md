@@ -75,8 +75,26 @@ reports `metrics.findingsByCategory` and `metrics.findingsByRepository` (counts
 by kind for each public repository). Findings carry the kind and id
 (`kinds`, `keywordIds`) and the file and line, never the matched value.
 
-Revisor (`src/host-identifiers.mjs`) uses the same rules for local PR review.
-Change both together.
+### Exclusions for host kinds
+
+Host-kind findings (`private-ip`, `local-path`, `machine-name`, `site-name`) are
+not counted in these places (`leak-checker/leak-exclusions.mjs`):
+
+| Exclusion | Rule | Kinds |
+|---|---|---|
+| Generated reports | under `report/`, `*.html`, `*.htm`, `*.html.json` | all host kinds |
+| Tests | under `test/`, `tests/`, `__tests__/`, `fixture/`, `fixtures/`; `*.test.*`, `*.spec.*` | all host kinds |
+| Workspace-root-only lines | every concrete full path on the line sits under a `workspaceRoots` entry | `local-path` |
+
+Keywords without a `category` are never excluded. Workspace roots are machine
+paths, so they live only in the keyword file (`"workspaceRoots": ["<absolute path>"]`);
+the public audit also treats its `--workspace` path as a root. A root that is
+not an array entry of an absolute path at least two levels deep is a
+configuration error. `/Users/<name>/` and `/home/<name>/` paths count as outside
+the root, so a home path on the same line is still reported.
+
+Revisor (`src/host-identifiers.mjs`, `src/leak-exclusions.mjs`) uses the same
+rules for local PR review. Change both together.
 
 ## Local scan
 

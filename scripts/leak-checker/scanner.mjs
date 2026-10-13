@@ -10,6 +10,7 @@ import {
   normalizeKeywords,
   redactKeywordValues,
 } from "./keyword-config.mjs";
+import { isExcludedHostFinding } from "./leak-exclusions.mjs";
 
 const IGNORED_DIRECTORIES = new Set([
   ".git",
@@ -222,12 +223,17 @@ function includesKeyword(text, keyword) {
  * 載せる (category の無い従来の語は `keyword`)。 従来の語だけの所見は `kinds` を持たない。
  * 値そのものは所見に載せない。
  */
-export function createTextScanner(keywords, { includeContent = false, detectors = [] } = {}) {
+export function createTextScanner(keywords, { includeContent = false, detectors = [], exclusions = null } = {}) {
   const normalizedKeywords = normalizeKeywords(keywords);
   const searchableKeywords = normalizedKeywords.map((keyword) => ({
     ...keyword,
     lowercaseValue: keyword.value.toLocaleLowerCase(),
   }));
+
+  // 種類つきの所見は生成レポート・テスト・ワークスペースルート配下だけの行を数えない
+  // (`leak-exclusions.mjs`)。 従来の語 (category 無し) は除外しない。
+  const isExcluded = (kind, relativePath, line) => Boolean(exclusions)
+    && isExcludedHostFinding({ kind, path: relativePath, lineText: line }, exclusions);
 
   return (relativePath, content) => {
     const lowercaseContent = content.toLocaleLowerCase();
@@ -241,8 +247,10 @@ export function createTextScanner(keywords, { includeContent = false, detectors 
     for (let index = 0; index < lines.length; index += 1) {
       const lowercaseLine = lines[index].toLocaleLowerCase();
       const matchedKeywords = fileKeywords
-        .filter((keyword) => includesKeyword(lowercaseLine, keyword));
-      const matchedDetectors = detectors.filter((detector) => detector.test(lines[index]));
+        .filter((keyword) => includesKeyword(lowercaseLine, keyword))
+        .filter((keyword) => !isExcluded(keyword.category, relativePath, lines[index]));
+      const matchedDetectors = detectors.filter((detector) =>
+        detector.test(lines[index]) && !isExcluded(detector.kind, relativePath, lines[index]));
       if (matchedKeywords.length === 0 && matchedDetectors.length === 0) continue;
 
       const finding = {
@@ -279,6 +287,7 @@ export function scanDirectory(
     relativeFiles = null,
     strict = false,
     detectors = [],
+    exclusions = null,
   } = {},
 ) {
   const normalizedKeywords = normalizeKeywords(keywords);
@@ -286,7 +295,7 @@ export function scanDirectory(
 
   const ignoreExpressions = ignorePatterns.map(globToRegularExpression);
   const shouldIgnorePath = createPathFilter(ignorePatterns);
-  const scanText = createTextScanner(normalizedKeywords, { includeContent, detectors });
+  const scanText = createTextScanner(normalizedKeywords, { includeContent, detectors, exclusions });
   const findings = [];
   const files = relativeFiles === null
     ? walkDirectory(
