@@ -51,6 +51,7 @@
 - [ ] 新規依存が最小限か・ライセンス確認済か・sibling path dep を使っていないか (RULE_CODE §18)
 - [ ] non-null 断言の濫用が無いか・const 既定か・引数の隠れた破壊的変更が無いか (RULE_CODE §19)
 - [ ] TODO/FIXME が Issue 化されているか・コメントアウト旧コードが残っていないか (RULE_CODE §20)
+- [ ] C++ の変更では [`RULE_CODE_CPP.md`](../RULE_CODE_CPP.md) の担保マトリクスに従い、clang-format / clang-tidy / 規則表 / Praesidium の結果を確認したか (RULE_CODE_CPP §C9)
 
 > データスキーマ / テスト / 運用の観点は `RULE_DATA_SCHEMA.md` / `RULE_TEST.md` / `RULE_SRE.md` と対応するレビュー (`REVIEW_DESIGN` / `REVIEW_QUALITY` / スタイル別) で確認する。
 

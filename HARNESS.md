@@ -77,6 +77,7 @@ Ccによるプロジェクト別DDD・テスト受入条件、フック観測、
 
 「どこに・どの粒度で・どの依存方向で」コードとドキュメントを置くか。
 **正本: [`RULE.md`](./RULE.md) §4 / [`RULE_CODE.md`](./RULE_CODE.md) /
+[`RULE_CODE_CPP.md`](./RULE_CODE_CPP.md) (C++ リポ) /
 [`RULE_DATA_SCHEMA.md`](./RULE_DATA_SCHEMA.md) /
 [`FORMAT_SPEC.md`](./FORMAT_SPEC.md)。**
 
@@ -336,6 +337,7 @@ Ccによるプロジェクト別DDD・テスト受入条件、フック観測、
 | 基盤(認証 / DB / 個人データ / worktree / 設定) | [`RULE.md`](./RULE.md) |
 | 技術スタック選定 | [`RULE_TECH_STACK.md`](./RULE_TECH_STACK.md) |
 | コーディング(SRP / 分割 / レイヤー) | [`RULE_CODE.md`](./RULE_CODE.md) |
+| C++(RULE_CODE の C++ 具体化 / ツール設定 [`cpp/`](./cpp/README.md)) | [`RULE_CODE_CPP.md`](./RULE_CODE_CPP.md) |
 | データスキーマ | [`RULE_DATA_SCHEMA.md`](./RULE_DATA_SCHEMA.md) |
 | テスト | [`RULE_TEST.md`](./RULE_TEST.md) |
 | SRE・運用 | [`RULE_SRE.md`](./RULE_SRE.md) |
