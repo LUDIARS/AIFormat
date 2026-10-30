@@ -13,7 +13,8 @@ LUDIARS 全リポジトリ共通の **コードを書くときの規約**。
 関連規約: インフラ・アーキ基盤 [`RULE.md`](./RULE.md) / 技術スタック選定
 [`RULE_TECH_STACK.md`](./RULE_TECH_STACK.md) / データスキーマ
 [`RULE_DATA_SCHEMA.md`](./RULE_DATA_SCHEMA.md) / テスト
-[`RULE_TEST.md`](./RULE_TEST.md) / 運用・SRE [`RULE_SRE.md`](./RULE_SRE.md)。
+[`RULE_TEST.md`](./RULE_TEST.md) / 運用・SRE [`RULE_SRE.md`](./RULE_SRE.md) /
+C++ [`RULE_CODE_CPP.md`](./RULE_CODE_CPP.md)。
 
 この文書が **正本 (single source of truth)**。各ワークスペースの
 コーディング支援スキル・メモリ・harness フックはここを参照／同期する
@@ -193,6 +194,7 @@ LUDIARS 全リポジトリ共通の **コードを書くときの規約**。
   型を明示する (推論任せにしない)。
 - `any` の濫用を避ける。やむを得ない箇所は局所化し理由を書く。
 - 不適切な暗黙の型変換に依存しない。
+- C++ は [`RULE_CODE_CPP.md`](./RULE_CODE_CPP.md) §C1 (Concept) / §C5 (失敗の型) を併用する。
 
 ## 9. 入力・前提条件の検証 (fail-fast / 信頼境界) — 必須
 
@@ -301,8 +303,9 @@ LUDIARS 全リポジトリ共通の **コードを書くときの規約**。
 - コメントは **why (意図・背景・トレードオフ)** を書く。コードを読めば分かる
   what の逐語コメントは避ける。
 - ソース・コメントは **UTF-8** で保存する。プラットフォーム固有のエンコーディング
-  要件に従う (例: PowerShell 5.1 + 非 ASCII の `.ps1` は UTF-8 BOM 必須 / MSVC は
-  日本語コメントに `/utf-8`、test target にも個別付与)。
+  要件に従う (例: PowerShell 5.1 + 非 ASCII の `.ps1` は UTF-8 BOM 必須 / C++ の MSVC
+  `/utf-8` は [`RULE_CODE_CPP.md`](./RULE_CODE_CPP.md) §C4.2 に従い baseline の
+  `ludiars_cxx_usage` が PUBLIC で付与する。target ごとの個別付与は禁止)。
 - ランタイムの I/O バイト列の扱いは §12。
 
 ## 18. 依存関係の追加
@@ -340,12 +343,13 @@ LUDIARS 全リポジトリ共通の **コードを書くときの規約**。
 
 ## 運用 (規約の所在と強制)
 
-本規約は次の 4 層で運用する。**本文の正本はこの `RULE_CODE.md` のみ** とし、
-他層は重複保持せず参照・同期する (ドリフト防止)。
+本規約は次の層で運用する。**本文の正本はこの `RULE_CODE.md`** (言語固有の具体化は
+下の「言語別 RULE」が正本) とし、他層は重複保持せず参照・同期する (ドリフト防止)。
 
 | 層 | 役割 | 実体 |
 |----|------|------|
 | **正本** | single source of truth | この `AIFormat/RULE_CODE.md` |
+| **言語別 RULE** | 言語固有の具体化 | C++: [`RULE_CODE_CPP.md`](./RULE_CODE_CPP.md) (ツール設定は [`cpp/`](./cpp/))。第 II 部と食い違う箇所は言語別 RULE を優先 |
 | **スキル** | コーディング時に手元へ出す窓口 + 挙動指示 (§21) | 各ワークスペースの `coding-conventions` スキル。本文はここから同期 |
 | **メモリ** | 常時コンテキストの短いポインタ (1 行) | 「コード規約は §正本 / スキル参照」のみ。本文は持たない |
 | **harness** | 機械的トリップワイヤ + リマインダ注入 | コード編集系ツール (Edit/Write) の PostToolUse フック。ファイル行数 (§2) 超過を警告し、SRP / 分割の要点を再掲する |

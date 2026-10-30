@@ -18,6 +18,8 @@ LUDIARS 全リポジトリ共通の設計ルール・レビューフォーマッ
 観点別の実装規約 (4 観点):
 
 - [`RULE_CODE.md`](./RULE_CODE.md) — **コーディング** (第 I 部: プロジェクトごとの宣言 / 第 II 部: 全プロジェクト共通の基本ルール)
+  - [`RULE_CODE_CPP.md`](./RULE_CODE_CPP.md) — **C++** (RULE_CODE の C++ 具体化: Concept / Praesidium / テスト / ビルド基盤 / 失敗の型 / 所有権 / 決定性 / API 衛生 / 機械担保)
+  - [`cpp/`](./cpp/README.md) — C++ ツール設定の正本 (`.clang-format` / `.clang-tidy` / `.editorconfig` / `LudiarsCxxBaseline.cmake` / 規則表 `rules/cpp-rules.mjs`)
 - [`RULE_DATA_SCHEMA.md`](./RULE_DATA_SCHEMA.md) — **データスキーマ** (種類分類 / 保存先 / 保護要否を spec に整備)
 - [`RULE_TEST.md`](./RULE_TEST.md) — **テスト** (リリース前のローカル検証必須 / アーキ別にコンテンツごとのテスト設計 / テスト充実度を品質基準に)
 - [`RULE_SRE.md`](./RULE_SRE.md) — **SRE・運用** (種別別の運用 watchpoint / ヘルスチェック `/api/health` / Issue 報告)

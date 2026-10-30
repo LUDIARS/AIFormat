@@ -42,6 +42,7 @@ unit / integration / E2E のレベル別にテストの有無と実効性を評�
 - [ ] 実装前に Anatomia の `test-suggestions` を入力として Augur でテストを計画し、実装とテストを同じ変更単位に入れているか (RULE_TEST §2)
 - [ ] 計画からテストを減らした場合、その理由を PR 説明に残しているか (RULE_TEST §2)
 - [ ] 変更種別に応じた既存テストが `kinds` で選別・実行され、回帰が green か (RULE_TEST §4)
+- [ ] C++ では [`RULE_CODE_CPP.md`](../RULE_CODE_CPP.md) §C3 (登録テスト 4 件と `ctest-asan-ubsan`・sanitizer preset・fuzz_corpus・決定性の bit 一致)・§C6.8 (永続化の後方互換 fixture と失敗注入)・§C7.2〜§C7.4 (ロジック層の乱数・時刻・浮動小数) を満たすか (担保マトリクスの QA 行)
 
 ---
 

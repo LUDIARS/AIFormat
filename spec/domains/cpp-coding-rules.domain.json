@@ -1,0 +1,18 @@
+{
+  "name": "cpp-coding-rules",
+  "description": "LUDIARS の C++ リポ (Ergo / Pictor / Ludellus-Native / ホストゲーム) 向けの言語別コード規約 RULE_CODE_CPP と、それを機械担保するツール設定の正本 (clang-format / clang-tidy / editorconfig / CMake baseline / hook と cpp-build-policy gate が共有する規則表) を所有する。各 C++ リポのビルド構成や実装、言語共通の RULE_CODE は所有しない。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)RULE_CODE_CPP\\.md$"
+    },
+    {
+      "pathPattern": "(^|/)cpp/"
+    }
+  ],
+  "specRefs": [
+    "RULE_CODE_CPP.md",
+    "cpp/README.md"
+  ]
+}
