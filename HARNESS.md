@@ -341,6 +341,7 @@ Ccによるプロジェクト別DDD・テスト受入条件、フック観測、
 | データスキーマ | [`RULE_DATA_SCHEMA.md`](./RULE_DATA_SCHEMA.md) |
 | テスト | [`RULE_TEST.md`](./RULE_TEST.md) |
 | SRE・運用 | [`RULE_SRE.md`](./RULE_SRE.md) |
+| AI 開発物・セキュリティ対応 | [`RULE_AI_SECURITY.md`](./RULE_AI_SECURITY.md) |
 | spec 記法(9 分類) | [`FORMAT_SPEC.md`](./FORMAT_SPEC.md) |
 | 認証記法 | [`FORMAT_AUTH.md`](./FORMAT_AUTH.md) |
 | レビュー(見るとき) | [`REVIEW.md`](./REVIEW.md) |

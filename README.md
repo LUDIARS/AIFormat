@@ -24,6 +24,10 @@ LUDIARS 全リポジトリ共通の設計ルール・レビューフォーマッ
 - [`RULE_TEST.md`](./RULE_TEST.md) — **テスト** (リリース前のローカル検証必須 / アーキ別にコンテンツごとのテスト設計 / テスト充実度を品質基準に)
 - [`RULE_SRE.md`](./RULE_SRE.md) — **SRE・運用** (種別別の運用 watchpoint / ヘルスチェック `/api/health` / Issue 報告)
 
+横断ポリシー:
+
+- [`RULE_AI_SECURITY.md`](./RULE_AI_SECURITY.md) — **AI 開発物とセキュリティ対応** (AIFormat の体系と Cernere 軸の配置 / AI 開発物の範囲・検収・公開境界・ライセンス / 予防・検知・重大度別の対応・漏洩時手順)
+
 ## レビュー (見るとき)
 
 - [`REVIEW.md`](./REVIEW.md) — レビュー全体の入口
