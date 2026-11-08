@@ -394,7 +394,7 @@ git -C <repo> worktree remove <別パス>
   - 検証だけでよいもの → **salt 付きハッシュ**（bcrypt / scrypt / argon2。復号不可）。
   - 後で復号が必要なもの → **暗号化**（AEAD + 鍵は本体と分離して管理）。
 - 設定ファイル（7.1）にシークレットを直書きしない。シークレットは別経路
-  （`@cernere/env-cli` + Infisical / OS キーチェーン / 起動時の env 注入）で渡し、
+  （Excubitor Vault (正本: Excubitor `spec/feature/vault.md`) に登録し、サービス起動時の env 注入で受け取る）で渡し、
   設定ファイルには **参照名のみ** を置く。
 - 自己発行のランダムトークン（例: loopback 用の spawn token）も、ファイル保存するなら
   最小権限 (`0600`) + `.gitignore` を必須とし、長期保存・横展開する場合はハッシュ化を検討する。
@@ -406,5 +406,5 @@ git -C <repo> worktree remove <別パス>
   「環境依存で手元だけ動く」事故を構造的に防げる。
 - 平文シークレットはリポ流出・ログ漏洩・バックアップ流出で即被害になる。
   salt 付きハッシュ／暗号化なら、漏洩しても被害を限定できる。
-- 参照: `FORMAT_AUTH.md`「シークレット管理」（`client_id` / `client_secret` は env +
-  `@cernere/env-cli` + Infisical で管理）。
+- 参照: `FORMAT_AUTH.md`「シークレット管理」（`client_id` / `client_secret` は Excubitor Vault に
+  登録し、env 注入で受け取る）。旧 `@cernere/env-cli` + Infisical 方式は 2026-09-30 に Vault へ置き換えた。

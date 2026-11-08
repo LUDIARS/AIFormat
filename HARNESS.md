@@ -60,8 +60,8 @@ Ccによるプロジェクト別DDD・テスト受入条件、フック観測、
 - **シークレットは平文保存しない。** API キー / トークン / `client_secret` /
   パスワードは平文でファイル・DB・ログ・設定に置かない。検証だけなら salt 付き
   ハッシュ、復号が要るなら AEAD 暗号化(鍵は本体と分離)。設定ファイルには
-  **参照名のみ**を置き、実体は `@cernere/env-cli` + Infisical / OS キーチェーン /
-  起動時 env 注入で渡す。
+  **参照名のみ**を置き、実体は Excubitor Vault に登録してサービス起動時の env 注入で渡す
+  (正本: Excubitor `spec/feature/vault.md`)。
 - **認証・セッションは Cernere に集約する。** JWT / OAuth refresh token 等の
   責務は各サービスに持たせない([`RULE.md`](./RULE.md) §1 / §5)。
 - **設定の保存先**: Claude 設定(settings.json / hooks / skills / state)は

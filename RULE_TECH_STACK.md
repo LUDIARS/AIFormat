@@ -165,9 +165,13 @@ LUDIARS の全サービスは共有インフラ ([LUDIARS/Infra](https://github.
 
 ## 環境変数・起動管理
 
-### Infisical + env-cli
+### Excubitor Vault
 
-環境変数は [Infisical](https://infisical.com) で管理し、`@cernere/env-cli` で操作する。
+シークレットを含む環境変数は Excubitor Vault に登録し、Excubitor がサービス起動時に env として
+注入する (正本: Excubitor `spec/feature/vault.md`)。`.env` は作らない。
+
+> 以下の Infisical + `@cernere/env-cli` の手順は 2026-09-30 に Vault へ置き換えた旧方式で、
+> 移行前のサービスの参照用に残す。新規サービスでは使わない。
 
 ```bash
 npm run env:setup        # Infisical 初回設定

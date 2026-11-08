@@ -265,7 +265,7 @@ C++ [`RULE_CODE_CPP.md`](./RULE_CODE_CPP.md)。
 **secret と個人データをソース・ログ・エラーに出さない。**
 
 - API キー / トークン / パスワード / 接続文字列をソースに直書きしない。設定は
-  Infisical 経由で注入する ([`RULE_TECH_STACK.md`](./RULE_TECH_STACK.md))。`.env`
+  Excubitor Vault から env で注入する ([`RULE_TECH_STACK.md`](./RULE_TECH_STACK.md))。`.env`
   はコミットしない。
 - secret は long-lived 共有値を避け、必要時発行 + プロセスメモリ保持を既定とする
   (Cernere `project-token` 方式)。

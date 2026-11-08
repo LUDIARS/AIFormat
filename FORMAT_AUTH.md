@@ -87,7 +87,7 @@ Content-Type: application/json
 
 | 要件 | 詳細 |
 |------|------|
-| シークレット管理 | `client_id` / `client_secret` は環境変数で管理。`@cernere/env-cli` + Infisical を推奨 |
+| シークレット管理 | `client_id` / `client_secret` は Excubitor Vault に登録し、サービス起動時の env 注入で受け取る |
 | トークンの有効期限 | 60 分。期限切れ前に再取得する |
 | リトライ | 認証失敗時は指数バックオフで再試行（最大 3 回） |
 | スコープ検証 | 受信側サービスは JWT の `scopes` を検証し、要求された操作が許可範囲内か確認する |
@@ -506,18 +506,14 @@ curl -H "X-User-Id: test-user-id" \
 
 ## 4. シークレット管理
 
-### 4.1 `@cernere/env-cli` によるセットアップ
+### 4.1 Excubitor Vault への登録
 
-```bash
-# Infisical 認証情報を設定
-npx env-cli setup
+下表の変数は Excubitor Vault (共有 Vault またはプロジェクト Vault) に登録し、使うサービスに
+変数名を紐付ける。Excubitor がサービス起動時に env として注入するため、`.env` ファイルは作らない。
+手順の正本は Excubitor `spec/feature/vault.md`。
 
-# 接続テスト
-npx env-cli test
-
-# .env ファイル生成
-npx env-cli env
-```
+> 旧方式の `@cernere/env-cli` + Infisical (`npx env-cli setup` / `env`) は 2026-09-30 に Vault へ
+> 置き換えた。新規サービスでは使わない。
 
 ### 4.2 必須環境変数
 

@@ -46,7 +46,7 @@ Excubitor 側では、拠点間 mesh の Ed25519 要求署名 (method・path・�
 
 | # | 不足 | 根拠 |
 |---|------|------|
-| T-1 | 全体方針が無かった (本書 §3.2 で新設)。ゲーム・ローカルアプリのレビュー観点はあるが、配布物の署名・起動時の完全性検査・難読化の基準は未定 | AIFormat `game/` / `local-app/` |
+| T-1 | **解消 (2026-11-08)**: RULE_AI_SECURITY §3.2 に配布形態ごとの最低線を追加。旧: 全体方針が無かった (本書 §3.2 で新設)。ゲーム・ローカルアプリのレビュー観点はあるが、配布物の署名・起動時の完全性検査・難読化の基準は未定 | AIFormat `game/` / `local-app/` |
 | T-2 | Cr 経由で利用者ごとの短命 token を配る標準手順 (クライアントに secret を埋めない代わり) が未整理 | — |
 
 ### 2.4 経路の保全証明
@@ -63,7 +63,7 @@ Excubitor 側では、拠点間 mesh の Ed25519 要求署名 (method・path・�
 | # | 不足 | 根拠 |
 |---|------|------|
 | V-1 | 依存 CVE の定期走査がゲートになっていない (`deps-sweep` スキルは手動・Dependabot alert 頼み)。SBOM も無い | — |
-| V-2 | lockfile の方針が矛盾している。レビュー観点は「lockfile をコミットし凍結インストール」、運用メモは「package-lock の差分はコミットしない」 | AIFormat `common/REVIEW_VULNERABILITY.md` §2 |
+| V-2 | **解消 (2026-11-08)**: RULE_AI_SECURITY §3.4 に「lockfile はコミットし意図した変更だけで更新、副作用の churn は戻す」と定めた。旧: lockfile の方針が矛盾している。レビュー観点は「lockfile をコミットし凍結インストール」、運用メモは「package-lock の差分はコミットしない」 | AIFormat `common/REVIEW_VULNERABILITY.md` §2 |
 | V-3 | シークレット履歴走査は設計のみで未実装 | AIFormat `script_design/SECRET_HISTORY.md` |
 | V-4 | 開発端末・拠点の感染対策 (端末保護・隔離手順・再構築の基準) の規定が無い | — |
 | V-5 | Ex security report は記録の器で、走査を自動で回す仕組みは無い | Ex `spec/feature/security-reports.md` |
@@ -76,7 +76,7 @@ Excubitor 側では、拠点間 mesh の Ed25519 要求署名 (method・path・�
 | D-2 | `operation_logs.params` を jsonb でそのまま保存しており、マスクの規定が無い | Cr `data/schema.md` |
 | D-3 | アカウント削除・オプトアウトを各サービスのサービス固有データとキャッシュへ伝播させる手順が無い | — |
 | D-4 | バックアップの暗号化・保持・削除の規定が無い | — |
-| D-5 | AIFormat `RULE.md` §7 と `HARNESS.md` §1 がシークレットの経路を `@cernere/env-cli` + Infisical と書いており、現行の Excubitor Vault と食い違う | Cr `plan/secrets-runtime.md` (履歴扱い) |
+| D-5 | **解消 (2026-11-08)**: RULE / HARNESS / RULE_CODE / RULE_TECH_STACK / FORMAT_AUTH を Excubitor Vault に更新。旧: AIFormat `RULE.md` §7 と `HARNESS.md` §1 がシークレットの経路を `@cernere/env-cli` + Infisical と書いており、現行の Excubitor Vault と食い違う | Cr `plan/secrets-runtime.md` (履歴扱い) |
 | D-6 | オプトアウトと権限付きのデータ閲覧は Cr にあるが、不審判定 (I-5) とつないで利用者単位でデータ閲覧・提供を一括停止する **ロックダウン** と、その解除手順が無い | Cr `data/schema.md` (`user_data_optouts`) |
 
 ### 2.7 管理者アクセス (loopback 限定) の攻撃耐性
@@ -102,11 +102,26 @@ Excubitor 側では、拠点間 mesh の Ed25519 要求署名 (method・path・�
 |---|------|------|
 | A-1 | loopback の管理口 (`/api/*`・`/mcp`) は `localBrowserGuard` だけで守られ認証が無く、同じマシン上のプロセス・SSRF・別 OS ユーザーから管理操作ができる (最重要)。操作者も自己申告の `x-excubitor-actor` header で記録しており、監査で主体を確かめられない。secret-agent の `/api/v1/secrets/resolve` だけは token 認証がある | Ex `src/security/local-browser-guard.ts` / `src/index.ts` |
 | A-2 | `X-Forwarded-*` 付きの要求を拒否しておらず、転送経路を管理ポートに向けた設定ミスを検知できない | 同上 |
-| A-3 | 破壊的な管理操作 (Vault の値の取り出し・削除・権限変更) に、プロセスから代行できない在席確認が無い | — |
+| A-3 | 破壊的な管理操作 (削除・権限変更・Vault の登録と紐付けの変更) に、プロセスから代行できない在席確認が無い。Vault は値を返す API・画面を持たない設計 (取り出しは対象外) だが、同じ OS ユーザーなら復号できることは許容済み | Ex `spec/feature/vault.md` |
 | A-4 | AI エージェントが管理口に届き、人と同じ管理権限で操作できる。AI 用に絞った資格情報が無い | — |
 | A-5 | 転送ツール (Tunnel / `tailscale serve`) の転送先に管理ポートが含まれていないかを点検する仕組みが無い | — |
 
-## 3. 次の一手
+## 3. 着手状況 (2026-11-08)
+
+依頼者の指示 (2026-11-08「不足分を着手。ただし今の AI ワークフローが著しく非効率になってはならない」) により、
+作業系統ごとに Actio へ登録した。全タスク共通の制約: 資格情報は自動配布・自動付与し日常操作に人の確認を
+挟まない / 在席確認は頻度の低い高影響操作に限る / 新しい強制は「観測 → 計測 → 強制」の順で入れる。
+
+| Actio | 系統 | 項目 |
+|-------|------|------|
+| actio:32574229-741a-4b7d-9804-986af3cc9e6f | AIFormat 文書 | D-5 / V-2 / T-1 (本変更で解消) |
+| actio:74bf9f19-101b-40f1-ab13-09dfe3b61c1b | Excubitor 管理 API | A-1〜A-5 |
+| actio:dbd553af-8d6b-48d7-9f60-8d7f60e1ff2b | Cernere 本人介在証明 | I-5 / D-6 / I-3 |
+| actio:ccad6260-2d65-4ac1-8167-1c50cdc3ee44 | Cernere 監査ログ | I-1 / P-2 / D-1 / D-2 |
+| actio:8ff003ec-f081-4a04-a6f7-47127c98f93a | 経路の保全 | Z-1 / Z-2 / P-1 |
+| actio:e3dfd86e-9615-405f-b972-115c9c20ed8b | 横断の残り | V-1 / V-3 / V-4 / V-5 / P-3 / D-3 / D-4 / T-2 |
+
+## 4. 次の一手
 
 不足ごとに担当リポジトリが違うため、着手するものを人間が選び、選んだものを Actio に登録してから
 進める。AIFormat 内で閉じるもの (V-2 の方針決定、D-5 の記述更新、T-1 の基準) は AIFormat の
