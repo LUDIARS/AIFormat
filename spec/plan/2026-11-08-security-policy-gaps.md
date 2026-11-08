@@ -79,9 +79,36 @@ Excubitor 側では、拠点間 mesh の Ed25519 要求署名 (method・path・�
 | D-5 | AIFormat `RULE.md` §7 と `HARNESS.md` §1 がシークレットの経路を `@cernere/env-cli` + Infisical と書いており、現行の Excubitor Vault と食い違う | Cr `plan/secrets-runtime.md` (履歴扱い) |
 | D-6 | オプトアウトと権限付きのデータ閲覧は Cr にあるが、不審判定 (I-5) とつないで利用者単位でデータ閲覧・提供を一括停止する **ロックダウン** と、その解除手順が無い | Cr `data/schema.md` (`user_data_optouts`) |
 
+### 2.7 管理者アクセス (loopback 限定) の攻撃耐性
+
+「管理用の入口は loopback だけ」は広く使われる方針だが、それだけでは攻撃耐性として
+**不十分** である。loopback に届く経路は外部ネットワーク以外にも多く、その多くを
+接続元アドレスでは区別できないためである。[`RULE_AI_SECURITY.md`](../../RULE_AI_SECURITY.md)
+§3.1.2 の 7 条件で補う。主な攻撃経路と、Excubitor の現行実装 (`src/security/local-browser-guard.ts` /
+`browser-allowlist.ts`) での対応状況は次のとおり。
+
+| 攻撃経路 | 内容 | 防ぐ条件 | Ex 現行 |
+|----------|------|----------|---------|
+| ブラウザからの CSRF | 悪意あるページが `http://127.0.0.1:<port>` へ form POST / fetch する | 3 | 対応 (Origin・Sec-Fetch-Site・JSON 必須) |
+| DNS rebinding | 攻撃者ドメインを 127.0.0.1 に解決させ、同一 origin として読む | 3 | 対応 (Host が loopback 名であることを検査) |
+| 転送経路 | Tunnel・`tailscale serve`・リバースプロキシ・SSH 転送が外部要求を loopback へ渡す | 2 | 一部 (allowlist 外の Host は拒否。転送側が Host を loopback に書き換える設定は防げない。`X-Forwarded-*` の拒否は無い) |
+| 同じマシンの他プロセス | マルウェア・汚染された npm 依存・AI エージェントが curl 等で直接呼ぶ (Origin を付けなければブラウザ向けの検査を通る) | 4 / 6 | **未対応** (loopback かつ Origin 無しの要求は認証なしで通る) |
+| 同じホスト上の SSRF | 別サービスの SSRF 脆弱性を踏み台に loopback の管理口を叩く | 4 | **未対応** (同上) |
+| ポートの乗っ取り | 管理サービスが止まっている間に別プロセスが同じポートで待ち受け、クライアントの資格情報を受け取る | 4 (相互認証) | 未確認 |
+| 別の OS ユーザー | 共用マシンの別ユーザーが loopback に届く | 4 | **未対応** |
+| リモートデスクトップ・遠隔管理ツール | 遠隔操作がマシン上の直接操作として見える | 本人証明 (§3.1) | 対象外 (ツール側の保護) |
+
+| # | 不足 | 根拠 |
+|---|------|------|
+| A-1 | loopback の管理口 (`/api/*`・`/mcp`) は `localBrowserGuard` だけで守られ認証が無く、同じマシン上のプロセス・SSRF・別 OS ユーザーから管理操作ができる (最重要)。操作者も自己申告の `x-excubitor-actor` header で記録しており、監査で主体を確かめられない。secret-agent の `/api/v1/secrets/resolve` だけは token 認証がある | Ex `src/security/local-browser-guard.ts` / `src/index.ts` |
+| A-2 | `X-Forwarded-*` 付きの要求を拒否しておらず、転送経路を管理ポートに向けた設定ミスを検知できない | 同上 |
+| A-3 | 破壊的な管理操作 (Vault の値の取り出し・削除・権限変更) に、プロセスから代行できない在席確認が無い | — |
+| A-4 | AI エージェントが管理口に届き、人と同じ管理権限で操作できる。AI 用に絞った資格情報が無い | — |
+| A-5 | 転送ツール (Tunnel / `tailscale serve`) の転送先に管理ポートが含まれていないかを点検する仕組みが無い | — |
+
 ## 3. 次の一手
 
 不足ごとに担当リポジトリが違うため、着手するものを人間が選び、選んだものを Actio に登録してから
 進める。AIFormat 内で閉じるもの (V-2 の方針決定、D-5 の記述更新、T-1 の基準) は AIFormat の
-変更で、Cr / Ex の実装を伴うもの (Z-1・Z-2・I-1・I-3・I-5・P-1・P-2・D-1〜D-3・D-6) は各リポジトリの
-タスクで扱う。
+変更で、Cr / Ex の実装を伴うもの (Z-1・Z-2・I-1・I-3・I-5・P-1・P-2・D-1〜D-3・D-6・A-1〜A-5) は
+各リポジトリのタスクで扱う。
