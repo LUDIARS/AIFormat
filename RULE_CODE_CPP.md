@@ -142,7 +142,7 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
   | coroutine (`co_await` 等) | 不採用 | 例外境界 (§C5.3) とフレーム寿命の扱いが未整備 |
   | 浮動小数の `std::from_chars` | 不採用 | Xcode 16 / NDK r27 の libc++ に無い。§C2.2 の共通ヘルパを使う |
   | 浮動小数の `std::format` | 不採用 | Apple の deployment target で使えない。整数・文字列の `std::format` は採用 (推奨止まり、§C2.1) |
-  | `std::expected` (C++23) | 条件付き | 直接使わず、§C5.1 の `Expected` の alias 先としてだけ使う |
+  | `std::expected` (C++23) | 未確認 | Praesidium 用 clang (Revisor の検査ホストは clang 18 + libstdc++ 13) では `-std=c++23` でも `__cpp_lib_expected` が無い。4 toolchain で使えると確かめたら「条件付き」(直接使わず、§C5.1 の `Expected` の alias 先としてだけ使う) にする |
   | その他の C++23 機能 | 未確認 | 4 toolchain で確認後、この表へ行を足す PR を先に出す |
   | C++26 以降の機能 | 不採用 | §C4.1 の上限 (C++23) |
 - **§C1.8 実行時ロードと外部 C ABI のミラー — 必須**:
@@ -154,21 +154,30 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
   - (3) ロード時に版シンボルか版 API を検査し、不一致なら拒否する。シンボルはロード時に 1 つの関数表へ全部解決する。
   - (4) ロードしたライブラリからのコールバックは §C5.3 の noexcept 境界とする。
   - 根拠: `Ludellus-Native/native/src/input/mediapipe_hand_source.cpp:42-114` と `mediapipe_pose_source.cpp:40-` が `MpBaseOptions` 等のミラーを重複して持ち、static_assert は 0 件。hand_source.cpp:264 は `if (resolve_error) resolved = library_file;` で相対パスへ黙って縮退し、:267 は検索フラグなしの `LoadLibraryW` で DLL planting の余地がある。
-  - 担保: [hook + gate — 規則表が `\bLoadLibrary(A|W)?\s*\(` を禁止し、`dlopen\(` / `LoadLibraryExW\(` を `*_loader.cpp` の外で検出。`<lib>_abi.h` の static_assert のコンパイル。Praesidium tripwire への `LoadLibrary` 追加を Revisor に提案]
+  - 担保: [hook + gate — 規則表が `\bLoadLibrary(A|W)?\s*\(` を禁止し、`dlopen\(` / `LoadLibraryExW\(` を `*_loader.cpp` の外で検出。`<lib>_abi.h` の static_assert のコンパイル。`LoadLibrary` は Praesidium に足さず、規則表 (変更範囲) に残す (「Revisor への提案」2)]
   - 関係: RULE_CODE §13 の隣接領域。local-app/REVIEW_VULNERABILITY_LOCAL (DLL サイドローディング) を書く側から具体化
 
 ## C2. Revisor の脆弱性対応を取り込む
 
-- **§C2.1 禁止 API を Praesidium より広く定める — 必須**: 新規・変更するコードでは、Praesidium の 7 関数
-  (`gets|strcpy|strcat|sprintf|vsprintf|wcscpy|wcscat`) に加えて、`strncpy`、`strtok`、`scanf/sscanf/fscanf`、
-  `atoi/atol/atof`、`std::sto*`、`alloca`、`rand/srand` を使わない。
+- **§C2.1 禁止 API を Praesidium より広く定める — 必須**: 新規・変更するコードでは、Praesidium の字句規則が拒否する呼び出し
+  (Revisor `spec/feature/praesidium.md` RV-PRAESIDIUM-01 の `native.unbounded-copy`・`native.unbounded-scan`・`native.stack-allocation`・
+  `native.command-execution`・`native.insecure-temp-name`・`native.symbol-alias` など。対象の関数と書き方は RV-PRAESIDIUM-01 を正とし、本書に写さない) に加えて、
+  `strncpy`、`strtok`、`scanf/sscanf/fscanf` (幅を指定した書式を含む)、`atoi/atol/atof`、`std::sto*`、`rand/srand` を使わない。
   - 書式文字列がリテラルでない printf 系と std::format 系も禁止する。
   - `snprintf` は、上限が `sizeof(配列)`・書式がリテラル・戻り値を `n < 0 || n >= sizeof(buf)` で検査、の 3 条件を満たす形だけ許す。
-  - 例外はリポに 1 つのロガー実装ファイル (§C8.4) の `vsnprintf` 転送に限り、§C9.4 の形式で `#pragma warning(disable: 4774)` を push/pop する。
+  - 例外はリポに 1 つのロガー実装ファイル (§C8.4) の `vsnprintf` 転送に限る。転送する関数に `[[gnu::format(printf, N, 0)]]`
+    (N は書式引数の位置。メンバ関数では暗黙の this が 1 番目。可変長引数の入口は `(printf, N, N + 1)`) を付け、clang / GCC の
+    `-Wformat-nonliteral` を抑制せずに通す。MSVC の C4774 にはこの属性が効かないので、`#if defined(_MSC_VER)` の中に限り §C9.4 の形式で
+    `#pragma warning(disable: 4774)` を push / pop する (`#if` の外に書くと clang / GCC の `-Wunknown-pragmas` になり、Praesidium の警告パスで落ちる)。
+    MSVC は `gnu::` の属性を解釈しないので、属性は clang / GCC のときだけ展開するマクロで付けてよい (Ergo では共通マクロ表の `ERGO_LOG_*` の名前にする)。
   - 加えて、clang-tidy `bugprone-unsafe-functions` が LLVM 19 で報告する既定一覧と More 一覧 (`asctime`・`setbuf`・`rewind`・`vfork`・`bcopy` など) も禁止とする。
   - (推奨) 文字列の組み立ては `std::format` を使う (必須にはしない。浮動小数は §C1.7 の表に従う)。
   - 根拠: `Ergo/src/ui_layout/binding.cpp:62` (sscanf)。`src/custos/http_server.cpp:100` は外部の Content-Length を stoul で読み、`-1` が巨大値に折り返す。`Ludellus-Native/native/src/render/avatar_sdf_report.cpp:10-13` は非リテラル書式を snprintf に渡す。
-  - 担保: [hook + gate — 規則表 (§C2.1 で追加した関数の主担保)、Praesidium tripwire (rules.mjs) の hook 実行。gate — `-Wformat=2` (MSVC `/w44774`。`-Werror=format-nonliteral` / `-Werror=format-security` / `/we4774` へのエラー化は §C4.3)、clang-tidy `bugprone-unsafe-functions` (LLVM 19 の既定一覧と More 一覧だけ。関数名を足す CustomFunctions は LLVM 20 以降)・`cert-err34-c` (atoi 系)・`cert-msc50-cpp` (rand)・`cert-err33-c`。`native.banned-api` の拡張を Revisor に提案]
+  - 担保: [hook + gate — 規則表 (§C2.1 で追加した関数の主担保。Praesidium が関数ごと拒否するもの (`native.unbounded-copy` の関数と `alloca` 系) は規則表に持たず Praesidium に任せる)、
+    Praesidium の字句規則 (hook では Revisor `src/praesidium/rules.mjs` の `sourceFindings`、gate では Revisor の preflight)。解析対象のユニットでは、
+    Praesidium が force-include する `baseline.h` (RV-PRAESIDIUM-06) がマクロ・別名・関数ポインタ経由の `strcpy` なども警告パスで拒否する。
+    gate — `-Wformat=2` (MSVC `/w44774`。`-Werror=format-nonliteral` / `-Werror=format-security` / `/we4774` へのエラー化は §C4.3)、clang-tidy `bugprone-unsafe-functions` (LLVM 19 の既定一覧と More 一覧だけ。関数名を足す CustomFunctions は LLVM 20 以降)・`cert-err34-c` (atoi 系)・`cert-msc50-cpp` (rand)・`cert-err33-c`。
+    §C2.1 で追加した関数は Praesidium に足さず規則表に残す (「Revisor への提案」1)]
   - 関係: 新規 (RULE_CODE §13 は外部プロセス起動の規定でありそちらに委ねる)
 - **§C2.2 文字列から数値への変換 — 必須**: 整数は `std::from_chars` で変換し、`ec` と全文字を消費したことを検査する。
   浮動小数は共通ヘルパ 1 箇所 (例: `ergo::parse_double`。ロケール非依存、Expected を返す) を経由する。
@@ -180,9 +189,10 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
   - ヘッダ長・本体長・要素数・チャンク長には名前付き定数の上限を置き、超えたら確保・seek・recv の **前に** 拒否する。
   - 外部由来の長さを、検査なしで `reserve` / `resize` / `seekg` / `recv` に渡さない。
   - **テンプレートは薄い型の層に限る**。残量と長さの検査は非テンプレートの .cpp 関数 (例: `take_bytes(size_t) -> Expected<std::span<const std::byte>>`) に実装し、
-    ヘッダの `take<T>()` はそれを呼んで §C2.5 の復元をするだけにする (Praesidium はヘッダだけの変更を解析しないため)。
+    ヘッダの `take<T>()` はそれを呼んで §C2.5 の復元をするだけにする (Praesidium は変更ヘッダを main file として解析するが、
+    関数テンプレートの本体は、解析するユニットがインスタンス化した箇所でしか解析しないため。RV-PRAESIDIUM-03)。
   - 根拠: `Ergo/src/custos/http_server.cpp:116-120` は本体を上限なしで recv する。`src/sound/audio_decoder.cpp:97-104` は検査なしで seekg する。`Ludellus-Native/native/src/world/proto/bytes.h:48-49` の `take<T>()` は検査がヘッダ内にあり、分担の是正対象。
-  - 担保: [gate — cpp-tidy で `clang-analyzer-optin.taint.TaintedAlloc` を有効化する (LLVM 19 で名前付きで使える taint 系はこれだけ。既定の taint source は scanf 系で、fread / recv で読んだ長さは検出しない)。recv / read / fread を source にする GenericTaint の Config は LLVM 20 以降で入れる (「未実装の担保」)。それまでは §C3.8 のコーパス再生 CTest と Praesidium native 解析が主担保。checker 集合への `optin.taint` 追加を Revisor に提案]
+  - 担保: [gate — cpp-tidy で `clang-analyzer-optin.taint.TaintedAlloc` を有効化する (LLVM 19 で名前付きで使える taint 系はこれだけ。既定の taint source は scanf 系で、fread / recv で読んだ長さは検出しない)。recv / read / fread を source にする GenericTaint の Config は LLVM 20 以降で入れる (「未実装の担保」)。それまでは §C3.8 のコーパス再生 CTest と Praesidium native 解析が主担保。Praesidium は `optin.taint` を checker 集合に入れない (「Revisor への提案」4)]
   - 関係: RULE_CODE §9・§12、RV-PRAESIDIUM-02 のネイティブ版
 - **§C2.4 バイナリレイアウトを固定する — 必須**: GPU バッファ・wire・ファイル形式とバイト列を共有する struct には、
   `static_assert(sizeof)`、全フィールドの `offsetof`、`std::endian` の明示を必須とする。外部由来の入力を struct へ直接
@@ -218,25 +228,53 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
   - 根拠: pNext の未初期化はドライバ内部の UB になり追跡できない。既存コードは概ね `{}` で書かれている (`Ergo/src/particle/renderer.cpp:197`)。
   - 担保: [gate — clang-tidy `cppcoreguidelines-init-variables`・`cppcoreguidelines-pro-type-member-init` (警告扱い)、clang/gcc の debug・sanitizer preset で `-ftrivial-auto-var-init=pattern`]
   - 関係: 新規
-- **§C2.9 標準ライブラリの hardening — 必須**: debug・テスト・sanitizer の preset では、`ludiars_cxx_warnings` を通して
+- **§C2.9 標準ライブラリの hardening — 必須**: debug・テスト・sanitizer の preset では、baseline の `LUDIARS_CXX_HARDENING=ON` で
   `_GLIBCXX_ASSERTIONS` と `_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE` を付ける。MSVC は既定の `_ITERATOR_DEBUG_LEVEL` を上書きせず (LNK2038 回避)、ABI を変えない `_MSVC_STL_HARDENING=1` を付ける。
+  hardening はビルドの全 target に同じ値で付け、target ごとに付け外ししない (§C4.10。付け方は `cpp/README.md`)。
   `std::out_of_range` を catch して分岐する書き方はしない。
+  - 配布するビルド (release の preset) のコンパイラ・リンカのハードニングは baseline に持たせず、Lorica (`LUDIARS/Lorica`) の
+    `lorica_harden_target(<target> EXTENDED)` で付ける。同じフラグを baseline や target ごとの `target_compile_options` に書かない。
+    - Lorica の基本 profile: Windows (MSVC 互換) は `/GS /sdl /guard:cf` とリンクの `/guard:cf /DYNAMICBASE /NXCOMPAT` (64 bit は `/HIGHENTROPYVA`)、
+      Linux (GCC / Clang) は `-fstack-protector-strong`・PIC (実行ファイルは `-pie`)・リンクの RELRO / NOW / noexecstack。
+    - `EXTENDED` で加わるもの: Linux (GCC 12+ / Clang 18+、x86-64 / AArch64) は標準ライブラリの hardening マクロ・最適化構成の `_FORTIFY_SOURCE=3`・
+      `-ftrivial-auto-var-init=zero`・`-fstack-clash-protection`・`-fcf-protection=full` (x86-64) か `-mbranch-protection=standard` (AArch64)。
+      MSVC 19.44+ (x64) は `_MSVC_STL_HARDENING=1`・`_MSVC_STL_DESTRUCTOR_TOMBSTONES=1`・`/CETCOMPAT`。
+    - それ以外の toolchain (Apple clang、Android NDK など) では configure が失敗する (黙って弱めない)。付ける preset は `lorica_extended_hardening_supported(<var>)` で確かめる。
+      詳細と限界は Lorica の `spec/feature/security-contracts.md` (SPEC-LR-EXTENDED)。
+    - `EXTENDED` は、同じ実行ファイル・共有ライブラリにリンクする、ソースからビルドする全 target に付ける (§C4.10)。
+    - (推奨) 配布する実行ファイルと共有ライブラリには、対応する toolchain で `EXTENDED` を付ける。
   - 根拠: Ergo と Ludellus-Native の CMake に hardening の定義が 0 件。ホットパスで `at()` を強制すると frame budget と衝突するので、検査はライブラリ側の hardening に任せる。
-  - 担保: [gate — baseline の `LUDIARS_CXX_HARDENING` (debug・テスト・sanitizer の preset で ON) と CTest]
+    `_FORTIFY_SOURCE`、stack protector、CFI、PIE / RELRO、`/guard:cf` の担当がどこにも無かったので、製品側の部品を持つ Lorica に一本化した
+    (Revisor の Praesidium は解析用の baseline だけを持ち、製品ビルドの部品は持たない。RV-PRAESIDIUM-06)。
+  - 担保: [gate — baseline の `LUDIARS_CXX_HARDENING` (debug・テスト・sanitizer の preset で ON) と CTest。release の `EXTENDED` は推奨でゲート外
+    (付けた target では、Lorica が未対応の toolchain で configure を失敗させる)]
   - 関係: 新規
 - **§C2.10 praesidium.json の登録と同期 — 必須**: C/C++ を含むリポはルートに `praesidium.json` を置き、新規・変更した TU を同じ PR で登録する。
-  - 変更した TU の `standard` / `includes` / `defines` は、Ninja preset の `compile_commands.json` と一致させる。
+  - 変更した TU の `standard` / `includes` / `defines` は、Ninja preset の `compile_commands.json` と一致させる。`defines` には次の例外がある
+    (RV-PRAESIDIUM-03 の時点の一覧。正は Revisor の spec):
+    - 標準ライブラリの hardening マクロ (§C2.9 の `LUDIARS_CXX_HARDENING` が出す `_GLIBCXX_ASSERTIONS`・`_LIBCPP_HARDENING_MODE=...`・`_MSVC_STL_HARDENING=1`) はそのまま書ける。
+    - `_FORTIFY_SOURCE` は書いてよいが、Praesidium は解析に渡さない (解析は最適化しないので効かず、glibc が `-O0` では `#warning` にするため)。
+    - 解析を止めるマクロ (`__clang_analyzer__`・`PRAESIDIUM_*`)、Revisor の `baseline.h` が綴る名前 (`_WIN32`・`__cplusplus`・`__has_include`・
+      `deprecated`・`__deprecated__`・`__attribute__`・`__restrict`・`__builtin_va_list`・`__WCHAR_TYPE__`・`wchar_t`・`noexcept`・`std`)、
+      Praesidium が拒否する API 名 (`gets`・`strcpy`・`strcat`・`sprintf`・`vsprintf`・`wcscpy`・`wcscat`) は書けない。書くと検査全体が未完了 (status `error`) になる。
+      `_WIN32` はコンパイラが定義するので、Windows の compile_commands.json にも `-D_WIN32` は出ない。
   - リポ外の include は、コミット済みの「パス prefix → packages 名」対応表で写像する。
-  - ヘッダだけの変更が解析されない coverage gap は規約では塞げないので、ヘッダから TU を導出する `covers` の追加を Revisor に提案する。
+  - 変更したヘッダは、Praesidium がそのヘッダの言語の設定済みユニット (ヘッダがそのユニットの `includes` かユニット自身のディレクトリの下にあるもの) の設定で、
+    ヘッダ自体を main file として解析する (RV-PRAESIDIUM-03)。そのようなユニットが 1 つも無いヘッダの変更は `native.configuration-required` になるので、
+    ヘッダの置き場所が見えるユニットを登録しておく。`.inc` / `.def` の fragment は、それを読むユニットを通して解析される。
   - 根拠: 未登録 TU は Praesidium が fail-closed で落とす。Ergo には `praesidium.json` が無い。`Ludellus-Native/praesidium.json` は 192 件を手書きしている。
-  - 担保: [gate — RV-PRAESIDIUM-03、変更 TU だけを照合する `praesidium-config-sync` CTest]
+    hardening preset の define を写すと検査全体が error になっていたので、Revisor が hardening マクロを通すようにした (RV-PRAESIDIUM-03)。
+  - 担保: [gate — RV-PRAESIDIUM-03 (未登録の変更 TU と、見えるユニットの無い変更ヘッダは fail-closed)。変更 TU の設定を compile_commands.json と照合する
+    `praesidium-config-sync` CTest は未実装 (「未実装の担保」)]
   - 関係: 新規
 - **§C2.11 Praesidium の結果の読み方 — 必須 (レビュー側)**: レビューでは少なくとも次の 4 点を確認する (全項目は `common/REVIEW_VULNERABILITY.md` の C/C++ 節)。Praesidium の pass だけを根拠に、
   メモリ安全の CWE 項目を済みにしてはならない。
   - (1) `coverage.nativeScope` が `changed` か `repository` か。
-  - (2) ヘッダだけの変更は coverage gap であって pass ではない。
+  - (2) 解析されなかったものは pass ではない: `coverage.nativeNotAnalyzed` (Objective-C/C++ のユニットとヘッダ) と、
+    どのユニットもインスタンス化しないテンプレートの本体 (§C2.3)。
   - (3) findings 0 件は安全の証明ではない。
-  - (4) diagnostics は保持されないので、ローカルで再現する。
+  - (4) diagnostics は保持されないので、Praesidium と同じパス (警告パス・展開パス・解析パス。RV-PRAESIDIUM-03) をローカルで回して再現する。
+    `--analyze` だけでは driver が `-w` を足すので警告は 1 つも出ない。
   - 根拠: `Revisor/spec/feature/praesidium.md` の RV-PRAESIDIUM-01 / 03。
   - 担保: [memory — `common/REVIEW_VULNERABILITY.md` の必須項目と ludiars-review の出力欄。gate (未実装) — `check-rule-ids` の対応漏れ検査 (§C9.1)。実装されるまでは memory だけ]
   - 関係: RULE_CODE「運用」(規約が表、レビューが裏) の C++ 版
@@ -293,9 +331,9 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
   - `ctest` [code, test, config, infra] — `cmake --preset verify` → build → `ctest --preset verify --output-on-failure --no-tests=error`
     (§C4.1 の条件では `verify-cxx23` も同じ手順で回す)
   - §C3.7 の sanitizer preset は別ビルドツリーを要するので、上の 4 件とは別に `ctest-asan-ubsan` [code, test, config, infra] として追加登録する。
-  - Revisor は `CMakeLists.txt` を docs (拡張子 .txt のため)、`*.cmake` とシェーダを code、`CMakePresets.json` とツール設定 (`.clang-format` / `.clang-tidy` /
-    `praesidium.json` / `cpp-rules.json`) を config に分類する (`Revisor/src/change-classification.mjs`)。上の `kinds` はこれに合わせて固定している。
-    `CMakeLists.txt` だけの変更で `ctest` が選ばれない欠落は、Revisor が `CMakeLists.txt` を infra に分類するまで残る (その間は `cpp-build-policy` だけが回る)。
+  - Revisor は `CMakeLists.txt` と `*.cmake` をビルド定義として infra、シェーダを code、`CMakePresets.json` とツール設定 (`.clang-format` / `.clang-tidy` /
+    `praesidium.json` / `cpp-rules.json`) を config に分類する (`Revisor/src/change-classification.mjs`)。上の `kinds` はこれに合わせて固定している
+    (`CMakeLists.txt` だけの変更でも `ctest` が選ばれる)。
   - ctest をモジュール単位に絞るのは、`cmake --graphviz` か Anatomia の依存グラフで、変更 target に推移的に依存する全 target の LABELS を含める場合に限る。
   - 根拠: Ergo の add_test は 54 件、LABELS は 0 件。`Revisor/spec/tasks/2026-09-01-registered-test-kinds-rollout.md`。
   - 担保: [gate — Revisor の登録テスト]
@@ -309,8 +347,9 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
 - **§C3.6 ヘッダの自己完結性とインスタンス化の検査 — 必須**: 新規・変更した公開ヘッダは `FILE_SET HEADERS` で宣言し、verify preset で
   `VERIFY_INTERFACE_HEADER_SETS ON` と `all_verify_interface_header_sets` をビルドする。このため C++ リポの `cmake_minimum_required` は **3.24 以上** とする。
   既存の違反ヘッダは除外リストに載せ、変更したときに外す。ヘッダだけで完結するテンプレートには、§C3.5 の満たす例と同じ型で明示的インスタンス化を 1 つ以上置いたテスト TU を置く
-  (Praesidium の coverage gap を塞ぐものではなく、ローカルでの補完)。
-  - 根拠: `praesidium.md:119-120` の "header-only change compiles no unit"。代わりに生成 TU 方式を自作すると保守負担が増える。
+  (ビルドの警告と全域の Praesidium 解析が本体を検査できるようにする補完。変更範囲の解析では、そのテスト TU が変更集合に入らない限り本体は解析されない)。
+  - 根拠: Praesidium は変更ヘッダを main file として解析するが、関数テンプレートの本体は解析するユニットがインスタンス化した箇所でしか解析しない (RV-PRAESIDIUM-03)。
+    代わりに生成 TU 方式を自作すると保守負担が増える。
   - 担保: [gate — CMake 3.24+ と CTest]
   - 関係: RULE_CODE §2 の具体化
 - **§C3.7 sanitizer の preset — 必須**: C++ リポは `asan-ubsan` preset を持つ。
@@ -320,7 +359,7 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
   - `asan-ubsan` preset の test 環境に `ASAN_OPTIONS=detect_stack_use_after_return=1` を置く (§C6.5)。
   - thread / atomic / mutex を変更する PR は、clang のホストで `tsan` preset (`-L concurrency`) も実行する。clang のホストが無い場合は、未実行であることを PR 説明に書く。
   - 誤検知は理由と Issue 番号を書いた suppression ファイルで抑える。`no_sanitize` 属性は使わない。
-  - 根拠: `praesidium.md:166-171` は "sanitizers remain complementary"。Ergo の CMakePresets.json に sanitizer の preset が無い。
+  - 根拠: `praesidium.md` の RV-PRAESIDIUM-03 は "sanitizers remain complementary"。Ergo の CMakePresets.json に sanitizer の preset が無い。
   - 担保: [gate — `ctest --preset asan-ubsan -LE gpu` を `ctest-asan-ubsan` [code, test, config, infra] として登録 (§C3.4)]
   - 関係: RULE_TEST §1 の具体化
 - **§C3.8 デコーダには fuzz とコーパス回帰を付ける — 必須**: 新規・変更するデコーダ (音声、JSON、wire、シーン、セーブ。パスかファイル名が規則表と同じ正規表現
@@ -374,7 +413,8 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
   - 関係: RULE_TECH_STACK の補完
 - **§C4.2 共通設定を 2 つの baseline target に集める — 必須**: 各リポは `cpp/LudiarsCxxBaseline.cmake` の同期コピーを include し、次の 2 つをリンクする。
   - (a) `ludiars_cxx_usage`: 全 target が **PUBLIC** でリンクする。consumer にも必要な使用要件だけを持つ (標準、MSVC の `/utf-8 /Zc:__cplusplus`、§C7.4 の fp フラグ)。
-  - (b) `ludiars_cxx_warnings`: 全 target が **PRIVATE** でリンクする。警告 (§C4.3)、`NOMINMAX`、`WIN32_LEAN_AND_MEAN`、§C2.9 の hardening を持つ。
+  - (b) `ludiars_cxx_warnings`: 全 target が **PRIVATE** でリンクする。警告 (§C4.3)、`NOMINMAX`、`WIN32_LEAN_AND_MEAN` を持つ。
+  - §C2.9 の hardening は (b) の PRIVATE には置かず、ビルド全体に同じ値で付ける (§C4.10。target ごとに付けると、付いていない TU と同じ inline 関数が混ざる)。
   - 禁止: target ごとの `/utf-8`、ソース内の `#define NOMINMAX`、ライブラリでの `CMAKE_MSVC_RUNTIME_LIBRARY` 設定、`_USE_MATH_DEFINES` の配布。
   - `/permissive-` と `/Zc:preprocessor` は opt-in。
   - リンク有無の検査 (`cmake_language(DEFER)`) は自リポの target だけを対象にし、移行期間中は WARNING、移行完了後は FATAL_ERROR にする。
@@ -382,7 +422,8 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
   - 担保: [hook + gate — 規則表の target 個別 `/utf-8`、ソース内の `#define NOMINMAX|WIN32_LEAN_AND_MEAN`、PUBLIC / INTERFACE の `_USE_MATH_DEFINES`。gate — CMake configure (`ludiars_cxx_check_targets` の DEFER)]
   - 関係: RULE_CODE §17 の「個別付与」を置き換える
 - **§C4.3 警告 — 必須**: `ludiars_cxx_warnings` の警告は次のとおり。正確な一覧は `cpp/LudiarsCxxBaseline.cmake` を正とし、本書の各 §C が要求するフラグはすべてここに含める。
-  - clang / gcc: `-Wall -Wextra -Wnon-virtual-dtor -Wformat=2 -Wsign-compare` (Praesidium と同じ -Wall -Wextra に §C1.5・§C2.1 の分を足す)。
+  - clang / gcc: `-Wall -Wextra -Wformat=2 -Wvla -Wnull-dereference -Wnon-virtual-dtor -Wsign-compare`。Praesidium の警告パスが有効にする警告
+    (Revisor `src/praesidium/native-baseline.mjs` の `NATIVE_WARNINGS`) をすべて含め、§C1.5・§C2.7 の分を足す。
     clang では `-Wthread-safety` (§C6.6)・`-Wdangling-gsl` (§C6.5)・`-Wreorder-init-list` (§C8.3)。
   - MSVC: `/W4 /w44265 /w44774 /w44062` (§C1.5・§C2.1、enum の switch 網羅)。clang-cl は MSVC 列に従い、clang 専用の警告も `/clang:` で付ける。
   - §C1.3・§C1.5・§C2.1・§C2.13・§C5.1・§C6.5・§C6.6・§C8.3 が挙げる個別のエラー化 (`-Werror=return-type` 等、MSVC の `/we4715` 等) を含め、
@@ -390,9 +431,13 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
     (個別の `-Werror=` を常時有効にすると、新しいコンパイラを使うホストのビルドを壊すため。ゲートは verify preset で担保する。)
   - 全警告をエラー化する target はリポごとの「準拠 target 一覧」(= baseline の `ludiars_cxx_mark_warnings_compliant` を付けた target) で管理する。
     新規 target は最初から一覧に載せ、一覧から外すことは禁止 (ラチェット)。
+  - 非推奨 (`-Wdeprecated-declarations` / MSVC C4996) のエラー化も、準拠 target 一覧の target にだけ付ける。準拠前の target には、MSVC が C4996 を出す CRT 関数
+    (`strcpy` など) の既存の呼び出しが残りうるので、一律にエラー化すると移行が止まる。製品側で `strcpy` などを非推奨にする Lorica の
+    `lorica_deprecate_unsafe_apis(<target>)` (その target の非推奨をすべてエラーにする) も、準拠 target にだけ付ける。
   - 厳しい警告セット (`-Wshadow -Wconversion -Wsign-conversion`) は opt-in (`ludiars_cxx_enable_strict_warnings`。§C2.6 の境界層では必須)。third_party は SYSTEM include にする。
   - 警告フラグを `ludiars_cxx_usage` や PUBLIC / INTERFACE で伝播させることは禁止。
-  - 根拠: Praesidium は `-Wall -Wextra -Werror` で解析するのに、製品側の警告設定は `Ergo/CMakeLists.txt:263-267` だけなので、Revisor で初めて落ちる。
+  - 根拠: Praesidium の警告パスは変更 TU と変更ヘッダを `-Werror` 付きで検査する (RV-PRAESIDIUM-03) のに、製品側の警告設定は `Ergo/CMakeLists.txt:263-267` だけなので、
+    Revisor で初めて落ちる。
   - 担保: [gate — verify preset]
   - 関係: 新規
 - **§C4.4 preset と compile_commands — 必須**: CMakePresets.json に Ninja の `ninja-dev` と `verify` を置き、`CMAKE_EXPORT_COMPILE_COMMANDS ON` にする。
@@ -419,10 +464,15 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
   - 根拠: `Ludellus-Native/native/CMakeLists.txt:710` は Ergo の非公開ヘッダ `src/bind/ws_client.h` を直接使っている。
   - 担保: [hook + gate — 規則表の `${<Repo>_SOURCE_DIR}/src` と `../<Repo>/src`。gate — §C4.2 と同じ DEFER で自リポ target の INCLUDE_DIRECTORIES を走査する (§C4.2 と同じく、移行期間中は WARNING、移行完了後は FATAL_ERROR。`ludiars_cxx_check_targets` の MODE)]
   - 関係: RULE_CODE §3 の具体化
-- **§C4.8 third_party の 2 区分 — 必須**: 同梱してよいのは header-only のライブラリに限り、LICENSE・上流の版・THIRD_PARTY_NOTICES の記載を揃える。
+- **§C4.8 third_party の 2 区分 — 必須**: header-only のライブラリは追跡ファイルとして同梱せず、git submodule か、ホストに入れたパッケージ
+  (CMake では SYSTEM include、Praesidium では `praesidium.json` の `packages` を管理者の `praesidium.host.json` が `-isystem` に写す) で取り込み、
+  LICENSE・上流の版・THIRD_PARTY_NOTICES の記載を揃える。submodule を `includes` で渡すと `-I` になり、そのライブラリの警告も Praesidium の警告パスで fail になるので、
+  警告を出すライブラリはホストパッケージにする。
   コンパイルが必要なライブラリは `dependencies.cmake` で SHA かタグを固定して取得する。他リポの third_party やソースツリーをパスで借りること、
   上流の名前を名乗る互換実装や stub を新しく置くことは禁止。既存のもの (Ergo の mini-gtest、Ludellus-Native の httplib stub) は改名と NOTICES の訂正を是正タスクにする。
-  - 根拠: `Ludellus-Native/native/CMakeLists.txt:89-100` は Ergo の gtest を、`:983-988` は Pictor の stb を借りている。`:736` は httplib の stub。
+  - 根拠: Praesidium の字句規則は追跡ファイルを (third_party も含めて) リポ全体で検査し、submodule の中身は辿らない (RV-PRAESIDIUM-01)。追跡ファイルとして置いた
+    header-only ライブラリの抑止 pragma (§C9.4) はそのリポの全 PR を止める (nlohmann/json の単一ヘッダだけで 82 行)。
+    `Ludellus-Native/native/CMakeLists.txt:89-100` は Ergo の gtest を、`:983-988` は Pictor の stb を借りている。`:736` は httplib の stub。
   - 担保: [gate — Ergo package hub の STRICT 検査に追加、NOTICES の照合]
   - 関係: RULE_CODE §18 の具体化
 - **§C4.9 プラットフォーム分岐 — 必須**: 公開ヘッダに OS 判定マクロや `<windows.h>` 等の OS SDK ヘッダを書くことは禁止。
@@ -438,8 +488,13 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
   - 設定マクロを持つ公開ヘッダは、設定値を名前に埋めた extern シンボル (例: `ergo_math_simd_cfg_<値>`) を参照する inline 変数を置き、
     ライブラリの .cpp だけがそのシンボルを定義する。MSVC では `#pragma detect_mismatch("ERGO_MATH_SIMD", "<値>")` を併用する
     (inline 関数の本体の違いはリンカが黙って片方を選ぶので、名前の違いでリンクを失敗させる)。
+  - 標準ライブラリの hardening マクロ (`_GLIBCXX_ASSERTIONS`・`_LIBCPP_HARDENING_MODE`・`_MSVC_STL_HARDENING`。§C2.9 の baseline と Lorica の `EXTENDED` が付けるもの) も、
+    1 つの実行ファイル・共有ライブラリにリンクする全 TU で同じ値にする。target ごと・TU ごとに付け外ししない
+    (値の違う TU が混ざると、`std::vector::operator[]` などの同名の inline 関数が 2 種類でき、リンカが検査の無いほうを残しうる)。
   - 根拠: `Ergo/include/ergo/math/batch.h:11-12` は「-DERGO_MATH_SIMD=0 で scalar を強制」と案内し、:28-34 でヘッダ内に既定値を付与する。`ERGO_MATH_SIMD` に CMake option が無い。add_f32・madd_f32・dot_f32 等は全て inline で本体が #if で切り替わる (:50,71,92,113,173) ので、ホストが一部の TU にだけ -D を付けると同名 inline 関数が 2 種類でき、リンカが黙って片方を選ぶ。
-  - 担保: [hook + gate — 規則表が `include/` に追加された `#ifndef X` 直後の `#define X` を検出する (`#pragma once` 前提。インクルードガード風の名前 (`_H` / `_HPP` / `_INCLUDED` 等) は除外。`prefix` を設定したリポでは `<PREFIX>_` のマクロに限り、未設定なら全マクロが対象)。gate — §C3.9 の 2 TU リンク検査 (未定義シンボルか detect_mismatch で失敗することを確かめる)]
+    hardening も同じで、`_GLIBCXX_ASSERTIONS` を付けた TU と付けていない TU を g++ 13 / clang++ 18 の `-O0` でリンクすると、付けていない TU を先にリンクした場合に、
+    付けた TU の `std::vector` の範囲外読み出しが止まらなかった。
+  - 担保: [hook + gate — 規則表が `include/` に追加された `#ifndef X` 直後の `#define X` を検出する (`#pragma once` 前提。インクルードガード風の名前 (`_H` / `_HPP` / `_INCLUDED` 等) は除外。`prefix` を設定したリポでは `<PREFIX>_` のマクロに限り、未設定なら全マクロが対象)。gate — §C3.9 の 2 TU リンク検査 (未定義シンボルか detect_mismatch で失敗することを確かめる)。hardening マクロは §C2.9 の付け方 (ビルド全体) で揃え、混在はレビューで確かめる]
   - 関係: RULE_CODE §7.1「設定の一元化」を ODR へ具体化
 
 ## C5. 失敗の型と例外の境界
@@ -456,8 +511,12 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
   - **Expected の実装**: リポに 1 つだけ置く。Ergo とその consumer は ergo_common の **自前の最小実装** `include/ergo/common/expected.h` を使い、`tl::expected` は同梱しない。
     Ergo が依存する下位ライブラリの Pictor (Ergo を取り込むと循環依存になる) は自リポに同じ形の 1 実装を置く。
   - **自前実装は `std::expected` (C++23) の API の部分集合に限る**。std::expected に無いメンバ・関数・暗黙変換を足さない。
-    同じテスト TU を C++20 (自前実装) と C++23 (alias) の両方でビルドする契約テスト `test_common_expected` を置く (§C4.1 の `verify` / `verify-cxx23`)。
-  - **`std::expected` への alias**: `__cpp_lib_expected` が使える構成では `Expected` を `std::expected` の alias にする。ただし判定は TU ごとに行わず、
+    同じテスト TU を C++20 (自前実装) と C++23 (alias を有効にした後は alias) の両方でビルドする契約テスト `test_common_expected` を置く (§C4.1 の `verify` / `verify-cxx23`)。
+  - **`std::expected` への alias**: §C1.7 の表で `std::expected` が「条件付き」になる (4 toolchain すべてで `__cpp_lib_expected` が使えると確かめる) までは、
+    `LUDIARS_CXX_STANDARD=23` でも alias にせず自前実装を使う。Praesidium の検査ホスト (clang 18 + libstdc++ 13) では `-std=c++23` でも `__cpp_lib_expected` が
+    定義されない (libstdc++ 13 は `__cpp_concepts >= 202002L` を要し、clang 18 は 201907L)。製品ビルドが alias を選んだ定義を §C2.10 で `praesidium.json` に写すと、
+    下の `#error` で解析が全ユニット失敗するため。
+    「条件付き」になった後は、`__cpp_lib_expected` が使える構成で `Expected` を `std::expected` の alias にする。ただし判定は TU ごとに行わず、
     configure 時に baseline の標準で 1 回だけ判定し、ergo_common の PUBLIC 定義 (§C4.10) としてビルド全体に配る。ヘッダは「定義が alias を指すのに
     `__cpp_lib_expected` が無い」場合を `#error` にする。(TU ごとに判定すると、C++20 の TU と C++23 の TU で `Expected` の実体が分かれ、§C4.10 の ODR 違反になるため。)
   - 根拠: 手本は `Ergo/include/ergo/render/render_backend.h:44`。悪い例は `audio/audio_engine.h:41,53`、`io/file.h:24,27`、`math/mat.h:106-110` (特異行列で零行列を返す)。bool と out 引数の組は 131 件、`std::string* err` は 116 件。
@@ -525,7 +584,7 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
 - **§C6.4 C コールバックへの所有権の受け渡し — 必須**: C API に所有権を渡すときは、`release()` と受け取り側での unique_ptr への再取得を対にしたヘルパ 1 つに閉じ込める。
   ヘルパの外で `.release()` を呼ばない。
   - 根拠: `Ludellus-Native/native/src/world/net/quic/msquic_transport.cpp:22,81,122` は SendBuffer を 2 つの経路でそれぞれ delete している。
-  - 担保: [hook + gate — cpp-tidy で `clang-analyzer-cplusplus.NewDelete` / `NewDeleteLeaks`、規則表がヘルパ外の `\.release\(\)` を検出。Praesidium の checker 集合への `cplusplus.*` 追加を Revisor に提案]
+  - 担保: [hook + gate — cpp-tidy で `clang-analyzer-cplusplus.NewDelete` / `NewDeleteLeaks`、規則表がヘルパ外の `\.release\(\)` を検出。gate — Praesidium の解析パス (checker 集合に `cplusplus` を明示。「Revisor への提案」5)]
   - 関係: RULE_CODE §10 の具体化
 - **§C6.5 ビュー型の寿命 — 必須**: `string_view` と `span` をメンバに持てるのは、名前が `*View` で終わる型だけ。
   - 非同期に実行されるラムダ (別スレッド、後で呼ばれるもの、キュー) に、ビュー・参照・イテレータをキャプチャしない。
@@ -645,13 +704,16 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
   - 根拠: HARNESS.md「ハーネスの原則」。
   - 担保: [gate (未実装。「未実装の担保」) — `AIFormat/scripts/check-rule-ids.mjs` を `harness-check.mjs` から呼び、ID の重複、参照する §N の実在、REVIEW との対応、規則表の各規則が実在する §C を指すことを検査する。実装されるまでは memory]
   - 関係: RULE_CODE「運用」の拡張
-- **§C9.2 スキルと委託 — 必須**: Castra の `cpp-conventions` スキルに本書の同期コピーを置く。coding-conventions には「C++ / CMake は cpp-conventions も参照」の 1 行だけを足す。
-  リポの CLAUDE.md には上書き内容だけを書く。C++ の委託用 delegation template には本書のパスと §C3.4 の gate のコマンドを固定文で入れる。
+- **§C9.2 スキルと委託 — 必須**: Castra の `cpp-conventions` スキル (`Castra/.claude/skills/cpp-conventions/SKILL.md`) に本書の同期コピーを置く。
+  coding-conventions には「C/C++ は cpp-conventions」の 1 行だけを足す。
+  リポの CLAUDE.md には上書き内容だけを書く。C++ の委託用 delegation template (`Castra/.claude/delegation-templates/`) には、本書のパス、§C3.4 の gate のコマンド、
+  変更前に Praesidium をローカルで回す手順 (警告パス・展開パス・解析パス。フラグは RV-PRAESIDIUM-03 を参照) を固定文で入れる。
   Codex にはフックが効かないので、hook で担保する規則は必ず §C9.5 の規則表を通して `cpp-build-policy` gate にも載せ、hook だけの規則を作らない (例外は §C9.5 (a) の要点表示だけ)。
-  `cpp-conventions` スキルは `*.h` / `*.hpp` / `*.cpp` / `CMakeLists.txt` / `*.cmake` / `CMakePresets.json` / `shaders/*` を編集するときに読み込まれるよう、
-  description にこれらの拡張子とパスを書く。
+  `cpp-conventions` スキルは C/C++ のソースとヘッダ (Revisor `src/praesidium/languages.mjs` の拡張子表: `*.c` / `*.cc` / `*.cpp` / `*.h` / `*.hpp` など) と
+  `CMakeLists.txt` / `*.cmake` / `CMakePresets.json` / `shaders/*` を編集するときに読み込まれるよう、description にこれらの拡張子とパスを書く。
   - 根拠: HARNESS §2.0、`Castra/.claude/delegation-templates/`。
-  - 担保: [memory — スキルと委託 template。同期のずれを見つける §C9.1 の検査は未実装]
+  - 担保: [memory — Castra の `cpp-conventions` スキル、coding-conventions の 1 行、C++ の委託 template (いずれも Castra の C++ harness の PR で実装)。
+    同期のずれを見つける §C9.1 の検査は未実装]
   - 関係: RULE_CODE「運用」の具体化
 - **§C9.3 ツール設定の正本と版の固定 — 必須**: `.clang-format` / `.clang-tidy` / `.editorconfig` は [`cpp/`](./cpp/) からコピーし、先頭に正本の版を書く。
   - リポ側で上書きできるのは末尾のキーと CheckOptions の追記だけ。third_party には `DisableFormat: true` を置く。
@@ -664,26 +726,39 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
   - 関係: 新規
 - **§C9.4 抑制の作法 — 必須**: 抑制は `// NOLINT(<check>): <理由> (§Cn)` と同じ形式の `NOLINTNEXTLINE` / `NOLINTBEGIN` に限り、`NOLINTEND` は
   `(<check>)` だけを書く。チェック名や理由の無い NOLINT は禁止。規則表の finding を抑制するときの check 名は `cpp-rules-<§C 番号>` (例: `cpp-rules-C2.5`)。
-  `#pragma warning(disable)` と `diagnostic ignored` は直前の行に同じ形式で理由を書き、push / pop で範囲を閉じる。Praesidium の禁止 API と analyzer の警告は抑制せずにコードを直す。
-  - 根拠: Praesidium は抑制を持たない設計 (RV-PRAESIDIUM-01)。Ergo の NOLINT は 0 件なので、今のうちに作法を決められる。
-  - 担保: [hook + gate — 規則表 (`check-cpp-suppressions` を統合) が変更行を検査]
+  コンパイラ警告の抑制は MSVC の `#pragma warning(disable: <番号>)` だけを許す。`#if defined(_MSC_VER)` の中に置き、直前の行に同じ形式で理由を書き、
+  `#pragma warning(push)` / `(pop)` で範囲を閉じる。
+  - それ以外の抑制は、理由や push / pop の有無にかかわらず禁止する: `#pragma clang|GCC diagnostic ignored|warning`、`_Pragma` と `__pragma`
+    (MSVC の `__pragma(warning(...))` も含む)、`#pragma system_header` (`clang` / `GCC` 付きを含む)、`[[clang::suppress]]` / `__attribute__((suppress))`、
+    `__clang_analyzer__` の参照など。規則表は clang / GCC の diagnostic pragma・`_Pragma`・`system_header`・`suppress` 属性・`__clang_analyzer__` を
+    抑制できない error (`suppressible: false`) として報告する。Praesidium の `native.analysis-suppression` は、上の全部を含む一覧をリポ全体で拒否する
+    (一覧は RV-PRAESIDIUM-01 を正とする)。
+  - Praesidium の禁止 API と analyzer の警告は抑制せずにコードを直す。
+  - 根拠: Praesidium は抑制を持たない設計 (RV-PRAESIDIUM-01)。ソース内の pragma は PR が `-w` を渡すのと同じ効果を持つので、2026-11-08 に Praesidium は
+    理由の有無にかかわらず拒否すると決め、本規約の許可を MSVC の `#pragma warning` に狭めた (規約どおりの 1 行がそのリポの全 PR を止めていた)。
+    Ergo の NOLINT は 0 件なので、今のうちに作法を決められる。
+  - 担保: [hook + gate — 規則表 (`check-cpp-suppressions` を統合) が変更行を検査。Praesidium の字句規則 (§C9.5 (b) の hook と Revisor の preflight)]
   - 関係: RULE_CODE §7 の具体化
 - **§C9.5 規則表と PostToolUse フック — 必須**: 正規表現による検査は `cpp/rules/cpp-rules.mjs` 1 つにまとめる。各規則は §C 番号・対象パス・重大度 (warn / error。error は hook で block する) を持ち、2 つの経路が同じ表を使う。
   - (1) hook: C++ / CMake / シェーダを Edit / Write したとき `Castra/.claude/hooks/cpp-convention-check.mjs` が動く。3 秒以内に終わり、error の規則以外では操作を止めない。
-    (a) セッションとリポの組ごとに最初の 1 回だけ要点を表示する / (b) 編集したファイル 1 本に `Revisor/src/praesidium/rules.mjs` の `sourceFindings` を適用する / (c) 規則表を追加行に適用する。
+    (a) セッションとリポの組ごとに最初の 1 回だけ要点を表示する / (b) 編集したファイル 1 本に `Revisor/src/praesidium/rules.mjs` の `sourceFindings` を適用する
+    (rules.mjs が読むのは同じディレクトリの `languages.mjs`・`native-lexer.mjs`・`javascript-evaluation.mjs` だけ) / (c) 規則表を追加行に適用する。
     rules.mjs を解決できないときは「Praesidium tripwire 未実行」と 1 行出し、黙って何もしない状態にしない。
   - (2) gate: `cpp-build-policy` が merge-base の diff に規則表を適用し、warn 以上を fail にする。
   - clang-tidy はフックに入れない (3 秒に収まらないため)。
   - リポ単位の規則の無効化は、`cpp-rules.json` の `disable` に §C 番号か規則名と理由を書く。`suppressible: false` の規則 (§C1.7、§C1.8 の `load-library`、
     §C2.1、§C2.2、§C6.7、§C9.4) と、それを含む §C 番号は無効にできず、書くと規則表が例外で止まる (§C9.4)。
   - 根拠: 既存の `code-convention-check.mjs` は .cpp / .h を対象にしているが行数しか見ない。Codex への委託では hook が効かない (§C9.2)。
-  - 担保: [hook + gate]
+  - 担保: [hook — Castra の `.claude/hooks/cpp-convention-check.mjs` (Castra の C++ harness の PR で実装)。gate — `cpp-build-policy`]
   - 関係: RULE_CODE「運用」の harness 層
 - **§C9.6 変更範囲の原則 — 必須**: format / tidy / build-policy の gate は merge-base からの変更集合だけに適用する。変更集合とは、変更行、変更 TU、
   変更ヘッダを include している TU (`clang -MM` で展開) を指す。merge-base が取れないときは全域検査に切り替えず、理由を出して fail にする。適用の詳細は「既存コードへの適用方針」。
-  - 根拠: Praesidium は全域を要求すると Figmentum の 464 本や Pictor の 288 本が通らないため、変更範囲に限定した。
+  - Praesidium で変更範囲に限られるのは native 解析 (RV-PRAESIDIUM-03) だけで、字句規則 (RV-PRAESIDIUM-01) は PR ごとにリポ全体の追跡ファイルに掛かる。
+    既存コードに 1 件でも該当があれば、その PR と無関係でも、そのリポのすべての PR が止まる。このため、規則表の禁止 API を Praesidium へ移すよう提案するのは、
+    対象のリポすべてで既存の使用が 0 件になってからにする (Odeum には `std::sto*` が 6 件ある)。
+  - 根拠: Praesidium の native 解析は全域を要求すると Figmentum の 464 本や Pictor の 288 本が通らないため、変更範囲に限定された。
   - 担保: [gate — `cpp/rules/lib/git-diff.mjs` (変更行と変更ファイル。merge-base が取れなければ fail)。ヘッダを include する TU への展開 (`clang -MM`) は `cpp-changed-units.mjs` で行う (未実装。「未実装の担保」)]
-  - 関係: RV-PRAESIDIUM-03 と揃える
+  - 関係: RV-PRAESIDIUM-03 (native 解析の変更範囲) と揃える
 
 ---
 
@@ -693,7 +768,9 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
 - **REVIEW** 列の略号: CQ = `common/REVIEW_CODE_QUALITY.md` / VU = `common/REVIEW_VULNERABILITY.md` / VL = `local-app/REVIEW_VULNERABILITY_LOCAL.md` /
   DS = `common/REVIEW_DESIGN.md` / QA = `common/REVIEW_QUALITY.md` / H = harness 自体の検査 (REVIEW 行を持たない)。
 - memory だけで担保する規約は §C6.2。`check-rule-ids.mjs` が実装されるまでは §C2.11・§C9.1・§C9.2 も実質 memory だけ (「未実装の担保」)。
-- Revisor への提案 (§C1.8 / §C2.1 / §C2.3 / §C2.10 / §C6.4) と「未実装の担保」は、実装されるまで担保に数えない。`[[clang::nonblocking]]` は推奨でゲート外。
+- Revisor への提案のうち Praesidium に入らなかったもの (§C1.8 の `LoadLibrary`、§C2.1 の追加関数、§C2.3 の optin.taint) と「未実装の担保」は担保に数えない。
+  Praesidium に入った提案 (§C2.1 の `alloca` と幅の無い scanf、§C2.10 / §C3.6 の変更ヘッダの解析、§C6.4 の `cplusplus`) は担保に数える (「Revisor への提案」)。
+  `[[clang::nonblocking]]` は推奨でゲート外。
 
 | 規約 | 記憶 | フック | ゲート | REVIEW |
 |---|---|---|---|---|
@@ -705,7 +782,7 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
 | C1.6 | 本文 | 規則表 ((ptr,size)・vector 引数) | 規則表 (公開ヘッダ) | VU |
 | C1.7 | 採否表 | 規則表 (modules・co_*) | SCAN_FOR_MODULES OFF、規則表 | CQ |
 | C1.8 | 本文 | 規則表 (LoadLibrary) | 規則表、`<lib>_abi.h` static_assert | VL |
-| C2.1 | 本文 | rules.mjs、規則表 | 規則表、-Wformat=2、unsafe-functions (既定・More)、cert-err34-c、cert-msc50-cpp、cert-err33-c | VU |
+| C2.1 | 本文 | rules.mjs、規則表 | Praesidium の字句規則と baseline.h、規則表、-Wformat=2、unsafe-functions (既定・More)、cert-err34-c、cert-msc50-cpp、cert-err33-c | VU |
 | C2.2 | 本文 | 規則表 (`std::sto*`) | cert-err34-c、規則表 | VU |
 | C2.3 | 本文 | — | optin.taint.TaintedAlloc、コーパス再生 CTest、Praesidium native | VU |
 | C2.4 | 本文 | 規則表 | 規則表、reflection CTest | VU |
@@ -714,7 +791,7 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
 | C2.7 | 本文 | — | -Wsign-compare、UBSan、境界層の unsigned-integer-overflow | VU |
 | C2.8 | 本文 | — | init-variables、pro-type-member-init、trivial-auto-var-init | VU |
 | C2.9 | 本文 | — | debug / sanitizer preset の hardening | VU |
-| C2.10 | 本文 | — | RV-PRAESIDIUM-03、praesidium-config-sync CTest | VU |
+| C2.10 | 本文 | — | RV-PRAESIDIUM-03 (praesidium-config-sync CTest は未実装) | VU |
 | C2.11 | REVIEW | — | — (check-rule-ids は未実装) | VU |
 | C2.12 | 本文 | 規則表 (shaders 変更でレイアウトテスト欠落) | 規則表 (変更集合)、shader_layout CTest、glslc / spirv-cross 無しで FATAL | CQ |
 | C2.13 | 本文 | 規則表 (u8path・変換 API) | 規則表、deprecated-declarations、cert-err33-c、日本語パス往復 CTest | CQ |
@@ -737,7 +814,7 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
 | C4.5 | 本文 | 規則表 (GLOB・ディレクトリスコープ) | 規則表、consumer リンクテスト | CQ |
 | C4.6 | 本文 | 規則表 (`CACHE BOOL "" FORCE`) | CMake FATAL、規則表 | CQ |
 | C4.7 | 本文 | 規則表 (他リポの /src) | 規則表、DEFER の INCLUDE_DIRECTORIES 走査 (MODE に従う) | CQ |
-| C4.8 | 本文 | — | package hub STRICT、NOTICES 照合 | VU |
+| C4.8 | 本文 | — | package hub STRICT、NOTICES 照合、Praesidium の字句規則 (追跡ファイル) | VU |
 | C4.9 | 本文 | 規則表 (OS マクロ・#if 数) | 規則表、android-ndk / ios configure | CQ |
 | C4.10 | 本文 | 規則表 (ヘッダ内既定値マクロ) | 規則表、2 TU リンク検査 (設定値シンボル・detect_mismatch) | CQ |
 | C5.1 | 本文・方針 | 規則表 (`std::string* err`) | 関数宣言の [[nodiscard]]、unused-return-value (CheckedReturnTypes)、-Wunused-result、test_common_expected、規則表 | CQ |
@@ -751,7 +828,7 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
 | C6.1 | 本文 | 規則表 (`new Impl`・`delete impl_`) | make-unique / make-shared、規則表 | CQ |
 | C6.2 | 本文 | — | — | CQ |
 | C6.3 | 本文 | — | 失敗注入 CTest、unix.Malloc | CQ |
-| C6.4 | 本文 | 規則表 (ヘルパ外 `.release()`) | cplusplus.NewDelete*、規則表 | VU |
+| C6.4 | 本文 | 規則表 (ヘルパ外 `.release()`) | cplusplus.NewDelete* (cpp-tidy と Praesidium の解析パス)、規則表 | VU |
 | C6.5 | 本文 | 規則表 (view 型メンバ) | dangling-gsl、dangling-handle、ASan、規則表 | VU |
 | C6.6 | 本文 | 規則表 (Thread-safety 行欠落) | -Wthread-safety、tsan、規則表 | CQ |
 | C6.7 | 本文 | 規則表 (instance() を block) | 規則表 | DS |
@@ -767,17 +844,17 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
 | C8.5 | 本文 | 規則表 (third_party の include) | 規則表 (許可リスト)、§C3.6 | DS |
 | C8.6 | 本文 | — | modernize-use-std-numbers | CQ |
 | C9.1 | 本文 | — | — (check-rule-ids.mjs は未実装) | H |
-| C9.2 | スキル・委託 template | — | — (check-rule-ids.mjs は未実装) | H |
+| C9.2 | Castra の cpp-conventions スキル・委託 template | — | — (check-rule-ids.mjs は未実装) | H |
 | C9.3 | 本文 | — | cpp-format、cpp-tidy | H |
-| C9.4 | 本文 | 規則表 (NOLINT の形式) | 規則表 | CQ |
-| C9.5 | — | cpp-convention-check.mjs | cpp-build-policy (disable は抑制できる規則だけ) | H |
+| C9.4 | 本文 | 規則表 (NOLINT の形式、MSVC 以外の抑制)、rules.mjs | 規則表、Praesidium の `native.analysis-suppression` | CQ |
+| C9.5 | — | Castra の cpp-convention-check.mjs | cpp-build-policy (disable は抑制できる規則だけ) | H |
 | C9.6 | 本文 | — | git-diff.mjs (変更行・変更ファイル。TU への展開は未実装) | H |
 
 ---
 
 ## 既存コードへの適用方針
 
-- **原則は変更範囲だけに適用する** (§C9.6、Praesidium と同じ方針)。
+- **原則は変更範囲だけに適用する** (§C9.6、Praesidium の native 解析と同じ方針。Praesidium の字句規則はリポ全体に掛かる)。
   - gate を適用するのは変更行・変更 TU・変更ヘッダを include する TU に限り、既存コードへは遡らない。
   - 既存ファイルを変更するときは、変更した宣言・関数・行に §C を適用する。ファイルに 1 行触れたことを理由にファイル全体の是正は求めない。
 - **新規 target** (main の target 一覧との差分で判定) は全 §C に準拠させる。
@@ -792,7 +869,7 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
   3. `ludiars_cxx_usage` を導入し、C++20 へ引き上げる。
 - **Ergo の C++17 → C++20 化は決定済みで、単独の PR で行う** (C++23 の選択は §C4.1 の条件で別途判断する)。
   - 内容: トップの `CMAKE_CXX_STANDARD 17` を削除し全 target に `ludiars_cxx_usage` を PUBLIC でリンク / 686・715・1051・1099 行の個別指定と target 個別の `/utf-8`
-    (`ergo_render` の PUBLIC /utf-8 を含む) を削除 / u8path の 25 件を §C2.13 の `path_from_utf8` へ置換 (deprecated が verify でエラーになるため同じ PR の機械的変更とする) /
+    (`ergo_render` の PUBLIC /utf-8 を含む) を削除 / u8path の 25 件を §C2.13 の `path_from_utf8` へ置換 (deprecated が準拠 target の verify でエラーになるため同じ PR の機械的変更とする) /
     `cmake_minimum_required` を 3.24 へ上げる (§C3.6)。
   - 確認: Ergo の全 CTest、Ludellus-Native の native ビルドと ctest、AdventureCube と KuzuSurvivors のリンク (ホスト側 pin 更新 PR の登録テスト)。
     `-ffp-contract=off` がホストへ伝播することを PR 本文に明記する。u8 リテラルは 0 件なので char8_t による破壊は小さい。
@@ -824,14 +901,19 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
 
 ## Revisor への提案
 
-次の 5 件を本書の採択と同時に Revisor へ Issue として起こす。**実装されるまでは §C9.5 の規則表と cpp-tidy (clang-tidy) で代替する**。
-代替している間、該当 §C の担保は「規則表 + cpp-tidy」であり、Praesidium の pass を根拠にしない (§C2.11)。
+本書の採択時に Revisor へ次の 5 件を提案した。状態は 2026-11-08 の決定と Revisor の実装 (`Revisor/spec/feature/praesidium.md` RV-PRAESIDIUM-06 の一覧) による。
+**Praesidium に入らなかった分は §C9.5 の規則表と cpp-tidy (clang-tidy) が担保し**、その §C の担保に Praesidium の pass を数えない (§C2.11)。
 
-1. `native.banned-api` の拡張 — §C2.1 の追加関数 (`strncpy`、`strtok`、`scanf` 系、`atoi` 系、`std::sto*`、`alloca`、`rand/srand`)。
-2. tripwire の追加 — 非リテラル書式の `snprintf` (§C2.1) と `LoadLibrary(A|W)` (§C1.8)。
-3. ヘッダを TU に結び付ける `covers` の追加 — ヘッダだけの変更の coverage gap を塞ぐ (§C2.10、§C3.6)。
-4. analyzer の checker 集合への `optin.taint.*` の追加 (§C2.3)。
-5. 同じく `cplusplus.NewDelete*` の追加 (§C6.4)。
+1. 禁止 API の拡張 (§C2.1) — 一部実装。`alloca` 系は `native.stack-allocation`、幅の無い文字列変換 (`%s` / `%[` など) を書式に持つ scanf 系は
+   `native.unbounded-scan` として Praesidium に入った。残り (`strncpy`、`strtok`、幅付きを含む scanf 系の全体、`atoi` 系、`std::sto*`、`rand/srand`) は
+   Praesidium に足さず、規則表 (`cpp-build-policy` の変更範囲ゲート) に残す (2026-11-08 の決定)。Praesidium の字句規則はリポ全体に掛かるので、
+   既存の使用が 1 件でもあるとそのリポの全 PR が止まる (§C9.6。Odeum に `std::sto*` が 6 件)。
+2. tripwire の追加 (§C2.1、§C1.8) — 非リテラル書式の printf 系は、解析するユニットでは警告パスの `-Wformat=2` で拒否される。
+   `LoadLibrary(A|W)` は 1 と同じ理由で規則表に残す。
+3. ヘッダの解析 (§C2.10、§C3.6) — `covers` の一覧ではなく、変更ヘッダを自動で main file として解析する形で実装された (RV-PRAESIDIUM-03)。
+   残る穴は、どのユニットもインスタンス化しないテンプレートの本体 (§C2.3) と、RV-PRAESIDIUM-03 の既知の穴の一覧。
+4. analyzer の checker 集合への `optin.taint.*` の追加 (§C2.3) — 見送り。checker の名前が clang の版で変わり、未知の名前は全ユニットを落とすため。
+5. `cplusplus.NewDelete*` の追加 (§C6.4) — 実装済み。checker 集合に `cplusplus` が明示された。§C6.4 の担保に数える。
 
 ## 未実装の担保
 
@@ -846,6 +928,9 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
    (`clang-analyzer-alpha.security.taint.GenericTaint`) なので、LLVM 20 以降へ上げるときに `cpp/.clang-tidy` へ入れる。
 4. clang-tidy の名前で禁止 API を足す設定 (§C2.1) — `bugprone-unsafe-functions.CustomFunctions` は LLVM 20 以降の option。
    それまでは規則表と Praesidium tripwire が担保する。
+5. `praesidium-config-sync` CTest (§C2.10) — 変更 TU の `praesidium.json` の `standard` / `includes` / `defines` を Ninja preset の
+   compile_commands.json と照合する (§C2.10 の `defines` の例外を含む)。それまでは Praesidium の fail-closed (未登録の変更 TU と、見えるユニットの無い変更ヘッダ) と
+   レビューが担保する。
 
 ## 採らなかった論点
 
@@ -871,7 +956,7 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
 
 - C++ は「コンパイルが通る」ことが正しさの証拠にならない。UB・ODR 違反・toolchain 差は、型 (concept、Expected、ビュー型) とビルド設定 (baseline、警告、fp フラグ) で
   書いた時点に止めるのが最も安い。
-- Revisor の Praesidium は変更 TU を解析するが、ヘッダだけの変更や taint を見ない。書く側の規則表・clang-tidy・sanitizer・fuzz でその外側を覆い、Praesidium の pass を過信しない。
+- Revisor の Praesidium は変更 TU と変更ヘッダを解析するが、インスタンス化されないテンプレートや taint は見ない。書く側の規則表・clang-tidy・sanitizer・fuzz でその外側を覆い、Praesidium の pass を過信しない。
 - ゲームのリプレイとサーバ照合は決定性が前提で、乱数・時計・浮動小数のどれか 1 つが漏れるとプラットフォームごとに結果が分かれる。決定性はテストで bit 一致を固定して初めて守れる。
 - AI は記憶した規約を忘れ、Codex にはフックが効かない。だから hook と gate が同じ規則表を使い、記憶だけの規約を §C6.2 の 1 件に絞った (まだ実装していない担保は「未実装の担保」に分けて書く)。
 
@@ -883,8 +968,8 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
 |----|------|------|
 | **正本** | single source of truth | この `AIFormat/RULE_CODE_CPP.md` |
 | **ツール設定の正本** | 機械が読む設定 | [`cpp/`](./cpp/) (`.clang-format` / `.clang-tidy` / `.editorconfig` / `LudiarsCxxBaseline.cmake` / `rules/cpp-rules.mjs`、使い方は [`cpp/README.md`](./cpp/README.md))。各 C++ リポには版を書いた同期コピーを置く |
-| **スキル** | C++ を書くときに手元へ出す窓口 | Castra の `cpp-conventions` スキル (本書の同期コピー)。`coding-conventions` からは 1 行のポインタだけ |
-| **harness** | 機械的トリップワイヤ + 要点注入 | 規則表 (`cpp/rules/cpp-rules.mjs`) + C++ / CMake / シェーダ編集時の PostToolUse フック (`cpp-convention-check.mjs`)。同じ規則表を Revisor の `cpp-build-policy` gate も使う |
+| **スキル** | C++ を書くときに手元へ出す窓口 | Castra の `cpp-conventions` スキル (`.claude/skills/cpp-conventions/SKILL.md`、本書の同期コピー)。`coding-conventions` からは 1 行のポインタだけ |
+| **harness** | 機械的トリップワイヤ + 要点注入 | 規則表 (`cpp/rules/cpp-rules.mjs`) + C++ / CMake / シェーダ編集時の PostToolUse フック (Castra の `.claude/hooks/cpp-convention-check.mjs`)。同じ規則表を Revisor の `cpp-build-policy` gate も使う |
 
 - レビュー時は、担保マトリクスの REVIEW 列 (CQ / VU / VL / DS / QA) が指す各レビューの C++ 項目で裏取りする
   ([`common/REVIEW_CODE_QUALITY.md`](./common/REVIEW_CODE_QUALITY.md)・[`common/REVIEW_VULNERABILITY.md`](./common/REVIEW_VULNERABILITY.md)・

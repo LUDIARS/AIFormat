@@ -14,7 +14,7 @@ LUDIARS の C++ リポ (Ergo / Pictor / Ludellus-Native / AdventureCube / KuzuSu
 | `.editorconfig` | エディタ既定値。UTF-8 (BOM なし)・LF・末尾改行、C++ / CMake / シェーダの字下げ | §C9.3 |
 | `LudiarsCxxBaseline.cmake` | usage / warnings の 2 つの baseline target と configure 検査 | §C4.1〜§C4.4・§C4.7、§C1.7、§C2.6〜§C2.9、§C3.7、§C7.4 |
 | `rules/cpp-rules.mjs` | 正規表現の規則表と公開 API・CLI。PostToolUse フックと `cpp-build-policy` gate が共有する | §C9.5 |
-| `rules/lib/` | 規則表の実装 (字句処理・設定 `cpp-rules.json` の検証・実行・git diff の収集・CLI) | §C9.5 / §C9.6 |
+| `rules/lib/` | 規則表の実装 (字句処理・設定 `cpp-rules.json` の検証・実行・git diff の収集・CLI)。C/C++ の字句処理と拡張子表は Revisor の同期コピー (下の「Revisor からの同期」) | §C9.5 / §C9.6 |
 | `rules/cpp-rules.test.mjs` | 規則表のテスト (`node --test cpp/rules/cpp-rules.test.mjs`)。各リポへは同期しない | §C9.5 |
 
 ## 固定版
@@ -49,20 +49,37 @@ ludiars_cxx_check_targets(PREFIX ergo_ MODE WARNING) # §C4.2 / §C4.7。移行�
 |---|---|---|---|
 | `LUDIARS_CXX_STANDARD` | `20` / `23` (`20`) | §C4.1 | 最上位のリポだけが決める。`verify-cxx23` では `23` |
 | `LUDIARS_CXX_WARNINGS_AS_ERRORS` | `ON` / `OFF` (`OFF`) | §C4.3 | `verify` で `ON`。取り込むホストの既定は `OFF` |
-| `LUDIARS_CXX_HARDENING` | `ON` / `OFF` (`OFF`) | §C2.8 / §C2.9 | debug・テスト・sanitizer の preset で `ON` |
+| `LUDIARS_CXX_HARDENING` | `ON` / `OFF` (`OFF`) | §C2.8 / §C2.9 | debug・テスト・sanitizer の preset で `ON`。ビルドの全 target に同じ値で付き、target ごとには付けない (§C4.10) |
 | `LUDIARS_CXX_SANITIZE` | `OFF` / `asan-ubsan` / `tsan` (`OFF`) | §C3.7 | `asan-ubsan` / `tsan` |
 | `LUDIARS_CXX_MSVC_CONFORMANCE` | `ON` / `OFF` (`OFF`) | §C4.2 | `/permissive-` と `/Zc:preprocessor` の opt-in |
 
 関数:
 
-- `ludiars_cxx_mark_warnings_compliant(<target>...)` — §C4.3 の「準拠 target 一覧」。`WARNINGS_AS_ERRORS` のとき全警告がエラーになる。
+- `ludiars_cxx_mark_warnings_compliant(<target>...)` — §C4.3 の「準拠 target 一覧」。`WARNINGS_AS_ERRORS` のとき全警告がエラーになる。非推奨 (`-Wdeprecated-declarations` / C4996) のエラー化も、この一覧の target にだけ付く (ラチェット)。
 - `ludiars_cxx_mark_logic_layer(<target>...)` — §C7.4 のロジック層。fast-math 系のフラグがあれば `ludiars_cxx_check_targets` が FATAL_ERROR にする。
 - `ludiars_cxx_check_targets(PREFIX <prefix> [MODE WARNING|FATAL_ERROR])` — トップで 1 回呼ぶ。`<prefix>` で始まる target の baseline リンク・標準・他リポ `src/` の include (§C4.1 / §C4.2 / §C4.7) を configure の最後に検査する。
 - `ludiars_cxx_enable_strict_warnings(<target>)` — `-Wshadow -Wconversion -Wsign-conversion` (MSVC は `/w44242 /w44365`)。§C2.6 の境界層には必ず付ける。
 - `ludiars_cxx_enable_sanitizers(<target> [THREAD] [UNSIGNED_INTEGER_OVERFLOW] [IMPLICIT_CONVERSION])` — §C3.7。境界層とその `fuzz_corpus` テストには `UNSIGNED_INTEGER_OVERFLOW` (§C2.7) と `IMPLICIT_CONVERSION` (§C2.6) を付ける (clang のみ。他は未実施を WARNING で出す)。
-- `ludiars_cxx_enable_hardening(<target>)` — §C2.9 を特定の target だけに付ける。
 
 `asan-ubsan` preset の test 環境には `ASAN_OPTIONS=detect_stack_use_after_return=1` を置く (§C3.7 / §C6.5)。
+
+clang / gcc の `ludiars_cxx_warnings` は、Praesidium の警告パスが有効にする警告 (Revisor `src/praesidium/native-baseline.mjs` の
+`NATIVE_WARNINGS`: `-Wall -Wextra -Wformat=2 -Wvla -Wnull-dereference`) をすべて含む (§C4.3)。Revisor 側の一覧が変わったら、baseline も合わせる。
+
+### 配布ビルドのハードニング (Lorica)
+
+`LUDIARS_CXX_HARDENING` は debug・テスト・sanitizer の preset 用で、配布するビルドのコンパイラ・リンカのハードニング
+(`_FORTIFY_SOURCE`、stack protector、CFI / CET、PIE / RELRO、`/guard:cf`) は baseline に持たない。release の preset では Lorica (`LUDIARS/Lorica`) を使う (§C2.9)。
+
+- `find_package(Lorica 0.1 CONFIG REQUIRED)` で取り込み、同じ実行ファイル・共有ライブラリにリンクする、ソースからビルドする全 target に
+  `lorica_harden_target(<target> EXTENDED)` を付ける (§C4.10)。release の preset だけで ON にする option (§C4.6 の `<PREFIX>_ENABLE_*`) で切り替える。
+- `CMakeLists.txt` を変えずに付けるときは、preset で `CMAKE_PROJECT_TOP_LEVEL_INCLUDES` に Lorica の `cmake/LoricaInject.cmake`、
+  `LORICA_TARGETS` に対象の全 target、`LORICA_PROFILE` に `extended` を渡す。
+- Lorica が対応するのは Windows (MSVC 互換) と Linux (GCC / Clang) で、`EXTENDED` は Linux の GCC 12+ / Clang 18+ (x86-64 / AArch64) と
+  MSVC 19.44+ (x64) だけ。それ以外 (Apple clang、Android NDK など) では configure が失敗するので、それらの release preset では ON にしない。
+- `LUDIARS_CXX_HARDENING` と同じ preset では使わない (未初期化の自動変数を baseline は `-ftrivial-auto-var-init=pattern`、Lorica は `=zero` にする)。
+- `lorica_deprecate_unsafe_apis(<target>)` は、その target の非推奨をすべてエラーにするので、準拠 target にだけ付ける (§C4.3)。
+- 付けるものと限界は Lorica の `README.md` と `spec/feature/security-contracts.md` (SPEC-LR-EXTENDED / SPEC-LR-UNSAFE-API) を正とする。
 
 ## 規則表の設定 (`cpp-rules.json`)
 
@@ -92,6 +109,21 @@ ludiars_cxx_check_targets(PREFIX ergo_ MODE WARNING) # §C4.2 / §C4.7。移行�
 | `disable` | §C 番号か規則名 → 理由 (理由は必須) | §C9.5。`suppressible: false` の規則 (§C1.7・§C1.8 の `load-library`・§C2.1・§C2.2・§C6.7・§C9.4) は無効にできず、書くと例外になる |
 
 §C2.6 の境界層は規則表ではなく CMake の target で宣言する (`ludiars_cxx_enable_strict_warnings` を付けた target)。
+
+抑制注釈 (`NOLINT` / `NOLINTNEXTLINE` / `NOLINTBEGIN`・`NOLINTEND`) と MSVC の `#pragma warning(push)` / `(pop)` の範囲は、ファイルごとに 1 回の走査で
+求める (行数に比例する時間。finding ごとに前後の行を読み直さないので、PostToolUse フックの 3 秒に収まる)。
+
+## Revisor からの同期
+
+規則表は C/C++ を Revisor の Praesidium と同じ境界で読む。字句処理と拡張子表は自作せず、Revisor の次のファイルの同期コピーを使う。
+
+| コピー | 同期元 | 使い道 |
+|---|---|---|
+| `rules/lib/native-lexer.mjs` | `Revisor/src/praesidium/native-lexer.mjs` | C/C++ のコメントとリテラルの空白化 (raw 文字列・桁区切り・header-name・行継続・ダイグラフを clang と同じ境界で読む)。`mask.mjs` に残すのは CMake・シェーダと、コメントを残すモード (NOLINT の検査用) だけ |
+| `rules/lib/languages.mjs` | `Revisor/src/praesidium/languages.mjs` | C/C++ の拡張子表 (`.c++` `.h++` `.tcc` `.ccm` `.cxxm` `.c++m` `.m` なども含む)。`paths.mjs` の分類はこの表から作る |
+
+- 1 行目に `// synced-from Revisor/src/praesidium/<ファイル名>@<commit>` を書き、それ以外は書き換えない。直したいときは Revisor へ PR を出す。
+- Revisor 側が変わったらコピーし直し、`node --test cpp/rules/cpp-rules.test.mjs` を回す。各リポへは下の手順 5 で `lib/` ごと届く。
 
 ## 各リポへの同期
 
