@@ -16,6 +16,7 @@ LUDIARS の C++ リポ (Ergo / Pictor / Ludellus-Native / AdventureCube / KuzuSu
 | `rules/cpp-rules.mjs` | 正規表現の規則表と公開 API・CLI。PostToolUse フックと `cpp-build-policy` gate が共有する | §C9.5 |
 | `rules/lib/` | 規則表の実装 (字句処理・設定 `cpp-rules.json` の検証・実行・git diff の収集・CLI) | §C9.5 / §C9.6 |
 | `rules/cpp-rules.test.mjs` | 規則表のテスト (`node --test cpp/rules/cpp-rules.test.mjs`)。各リポへは同期しない | §C9.5 |
+| `LudiarsCxxBaseline.test.mjs` | baseline のテスト。小さな CMake プロジェクトを g++ / clang++ で configure し、警告・エラー化・hardening が付く target を compile_commands.json で確かめる (cmake が無ければ skip)。各リポへは同期しない | §C2.9 / §C4.3 / §C4.10 |
 
 ## 固定版
 
@@ -133,6 +134,7 @@ echo "synced-from AIFormat/cpp@$c" > tools/cpp-rules/SYNCED_FROM
 clang-format --style=file:cpp/.clang-format --dump-config > /dev/null
 clang-tidy --config-file=cpp/.clang-tidy --verify-config
 node --test cpp/rules/cpp-rules.test.mjs
+node --test cpp/LudiarsCxxBaseline.test.mjs
 ```
 
 合格条件: LLVM 19 の clang-tidy で `--verify-config` が `No config errors detected.` だけを出すこと。

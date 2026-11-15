@@ -1,25 +1,39 @@
 /** RULE_CODE_CPP §C9.5 規則表: パスの分類と言語判定。パスはリポ相対・区切りは `/`。 */
 
+import {
+  isCLanguageUnit, isModuleUnit, isNativeFragment, isNativeHeader, isNativeSource, isTranslationUnit,
+} from "./languages.mjs";
+
+/**
+ * C/C++ のパス分類。拡張子の表は Revisor の同期コピー (languages.mjs) を正とし、ここでは書き写さない
+ * (`.c++` `.h++` `.tcc` `.ccm` `.cxxm` `.c++m` `.m` `.M` `.C` なども Praesidium と同じに分類される)。
+ * `.inc` / `.def` の断片は他言語とも共有する拡張子なので、Praesidium と同じく単独では検査しない。
+ * 規則の `files` / `exclude` は `test(path)` を持てばよい (RegExp と同じ使い方)。
+ */
+const fileClass = (predicate) => Object.freeze({ test: (file) => predicate(String(file)) });
+const isPolicyNative = (file) => isNativeSource(file) && !isNativeFragment(file);
+const INCLUDE_DIR = /(?:^|\/)include\//;
+
 /** 規則の `files` に使うパス分類。パスはリポ相対・区切りは `/`。 */
 export const PATHS = Object.freeze({
   /** C と C++ のソースとヘッダ (C にも当てはまる規則: 禁止 API・実行時ロード・抑制の形式)。 */
-  native: /\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx|inl|ipp|tpp|mm|ixx|cppm|mpp)$/i,
-  /** C++ のソースとヘッダ (Objective-C++ とモジュール単位を含む。.c は含まない)。 */
-  cpp: /\.(?:cc|cpp|cxx|h|hh|hpp|hxx|inl|ipp|tpp|mm|ixx|cppm|mpp)$/i,
+  native: fileClass(isPolicyNative),
+  /** C++ のソースとヘッダ (Objective-C++・モジュール単位・C と C++ のどちらにもなる .C / .M を含む。.c と .m は含まない)。 */
+  cpp: fileClass((file) => isPolicyNative(file) && !isCLanguageUnit(file)),
   /** 翻訳単位になるソース。 */
-  source: /\.(?:c|cc|cpp|cxx|mm)$/i,
+  source: fileClass(isTranslationUnit),
   /** ヘッダ。 */
-  header: /\.(?:h|hh|hpp|hxx|inl|ipp|tpp)$/i,
+  header: fileClass(isNativeHeader),
   /** 公開ヘッダ (`include/` 配下)。 */
-  publicHeader: /(?:^|\/)include\/.+\.(?:h|hh|hpp|hxx|inl|ipp|tpp)$/i,
+  publicHeader: fileClass((file) => INCLUDE_DIR.test(file) && isNativeHeader(file)),
   /** C++20 モジュールのインターフェース単位。 */
-  moduleUnit: /\.(?:ixx|cppm|mpp)$/i,
+  moduleUnit: fileClass(isModuleUnit),
   /** CMake。 */
   cmake: /(?:^|\/)CMakeLists\.txt$|\.cmake$/i,
   /** シェーダ。 */
   shader: /\.(?:glsl|comp|vert|frag|geom|tesc|tese|mesh|task|rgen|rchit|rmiss|rahit|rint|rcall)$/i,
   /** tests/ 配下の翻訳単位。 */
-  testSource: /(?:^|\/)tests?\/.*\.(?:c|cc|cpp|cxx|mm)$/i,
+  testSource: fileClass((file) => TESTS_DIR.test(file) && isTranslationUnit(file)),
   /** Augur の契約登録ファイル。 */
   augurContracts: /(?:^|\/)augur\.contracts\.json$/,
 });

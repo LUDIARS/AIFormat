@@ -7,8 +7,10 @@
  *     `scanSource` (と `scanChangeset([その 1 本])`) を掛ける。severity "error" は block、"warn" は表示のみ。
  *   - gate: Revisor 登録テスト `cpp-build-policy` が CLI (`node cpp-rules.mjs <repo> --base <ref>`) で
  *     merge-base からの diff に掛け、warn 以上を fail にする (exit 1)。
- * - 正規表現による構文 tripwire であり、パーサではない。コメントと文字列リテラルは
- *   `maskCommentsAndLiterals` で空白化してから照合する (改行は残すので行番号は変わらない)。
+ * - 正規表現による構文 tripwire であり、パーサではない。コメントと文字列リテラルは空白化してから照合する
+ *   (改行は残すので行番号は変わらない)。C/C++ の字句処理と拡張子の表は Revisor の同期コピー
+ *   (`lib/native-lexer.mjs` / `lib/languages.mjs`) で、Praesidium と同じ境界で読む。C と C++ のどちらにも
+ *   なるファイル (ヘッダ・.C・.M) は C17 / C23 / C++ の各読み方で照合し、finding を合算する。
  * - finding は §C 番号・規則名・ファイル・行番号・重大度・固定文言だけを持ち、ソース抜粋を入れない
  *   (Revisor の leakage と同じ方針)。
  * - このファイルの責務は「規則表」と、表を束ねた公開 API。字句処理・設定・実行・git は `lib/` に分ける。
@@ -21,10 +23,10 @@ import { fileURLToPath } from "node:url";
 import { checkConceptTests, checkFuzzHarness, checkShaderLayoutSync } from "./lib/checks-changeset.mjs";
 import { checkCacheForce, checkForeignSrc, checkPerTargetUtf8, checkPublicMathDefines } from "./lib/checks-cmake.mjs";
 import {
-  checkCStyleCast, checkFunctionalCast, checkGpuStructLayout, checkInterfaceDataMember, checkModuleUnitFile,
-  checkNolintForm, checkPlatformIfCount, checkPositionalConfig, checkPragmaDisable, checkReinterpretCast,
-  checkRemoveBeforeRename, checkSingleton, checkThreadSafetyNote, checkUnconstrainedTemplate, checkViewMember,
-  releaseResultUsed,
+  callOf, checkAnalysisSuppression, checkCStyleCast, checkFunctionalCast, checkGpuStructLayout, checkInterfaceDataMember,
+  checkModuleUnitFile, checkNolintForm, checkPlatformIfCount, checkPositionalConfig, checkPragmaDisable,
+  checkReinterpretCast, checkRemoveBeforeRename, checkSingleton, checkThreadSafetyNote, checkUnconstrainedTemplate,
+  checkViewMember, notBanDirective, releaseResultUsed,
 } from "./lib/checks-cpp.mjs";
 import { runCli } from "./lib/cli.mjs";
 import { CONFIG_FILE, inAny, loadRepoConfig as loadConfig, parseRepoConfig as parseConfig } from "./lib/config.mjs";
@@ -49,7 +51,9 @@ export { CONFIG_FILE };
  * - when(config): 設定が揃ったときだけ有効にする (ロジック層・ロガーの宣言など)。
  * - scope: "added-lines" = finding の行 (anyOf のどれか) が追加行のときだけ報告 /
  *          "file" = 変更されたファイル全体で判定 / "changeset" = 変更集合全体で判定 (check(cs))。
- * - mask: 照合するテキスト。"code" (既定: コメントとリテラルを空白化) /
+ * - mask: 照合するテキスト。"code" (既定: コメントとリテラルの中身を空白化) /
+ *         "logical" (C/C++ はプリプロセッサの論理行: 行継続とコメントを畳み、ダイグラフを正規化。指令や
+ *         呼び出しを行継続・コメント越しに照合する規則) /
  *         "comments" (リテラルだけ空白化。注釈を見る規則) / "none" (原文)。
  * - pattern: 照合する正規表現 (名前付きグループ `at` があればその位置の行を報告)。
  * - filter(match, ctx): pattern の一致を絞る。check(ctx): pattern で書けない規則。
@@ -107,7 +111,7 @@ export const rules = [
     id: "C1.7", name: "modules-coroutines", severity: "error",
     title: "modules と coroutine を新規に導入しない",
     files: PATHS.cpp, scope: "added-lines",
-    pattern: /^[ \t]*(?:export[ \t]+)?module[ \t]*(?:;|[A-Za-z_][\w.]*[ \t]*(?::[\w.]+)?[ \t]*;)|^[ \t]*(?:export[ \t]+)?import[ \t]+(?:<[^>\n]*>|[A-Za-z_:][\w.:]*|)[ \t]*;|\bco_(?:await|return|yield)\b/m,
+    pattern: /^[ \t]*(?:export[ \t]+)?module[ \t]*(?:;|[A-Za-z_][\w.]*[ \t]*(?::[\w.]+)?[ \t]*;)|^[ \t]*(?:export[ \t]+)?import[ \t]+(?:<[^>\n]*>|"[^"\n]*"|[A-Za-z_:][\w.:]*|)[ \t]*;|\bco_(?:await|return|yield)\b/m,
     message: "C++20 modules と coroutine は採否表で不採用。ヘッダと通常の関数で書く",
     why: "Praesidium は翻訳単位ごとに clang --analyze するので BMI 前提の import を解析できず、MSVC/Xcode/NDK 間で BMI に互換性がない",
     suppressible: false,
@@ -149,11 +153,14 @@ export const rules = [
 
   // ---- C2 Revisor の脆弱性対応を取り込む ----
   {
+    // Praesidium が関数ごと拒否するもの (native.unbounded-copy の strcpy 系と native.stack-allocation の alloca 系。
+    // 一覧は Revisor spec/feature/praesidium.md RV-PRAESIDIUM-01) は表に持たない。hook と preflight の Praesidium が見る。
     id: "C2.1", name: "banned-api", severity: "error",
     title: "禁止 API",
-    files: PATHS.native, scope: "added-lines",
-    pattern: /(?:\bstd::|(?<![\w.:]|->))(?:gets|strcpy|strcat|sprintf|vsprintf|wcscpy|wcscat|strncpy|strtok|scanf|sscanf|fscanf|atoi|atol|atoll|atof|alloca|_alloca|rand|srand)\s*\(/,
-    message: "禁止 API (Praesidium の 7 関数、strncpy/strtok/scanf 系/atoi 系/alloca/rand) は使わない。std::string・std::from_chars・注入した RNG で書く",
+    files: PATHS.native, scope: "added-lines", mask: "logical",
+    pattern: callOf("strncpy|strtok|scanf|sscanf|fscanf|atoi|atol|atoll|atof|rand|srand"),
+    filter: notBanDirective,
+    message: "§C2.1 で足した禁止 API (strncpy / strtok / scanf 系 / atoi 系 / rand 系) は使わない。std::string・std::from_chars・注入した RNG で書く (strcpy 系と alloca 系は Praesidium の native.unbounded-copy / native.stack-allocation が拒否する)",
     why: "境界や失敗を表せない API は、外部入力でバッファ溢れや無言の 0 を生む",
     suppressible: false,
   },
@@ -515,10 +522,18 @@ export const rules = [
   },
   {
     id: "C9.4", name: "pragma-disable", severity: "error",
-    title: "#pragma による警告の無効化",
+    title: "MSVC の #pragma warning による警告の無効化",
     files: PATHS.native, scope: "added-lines", check: checkPragmaDisable,
-    message: "#pragma warning(disable) / diagnostic ignored は直前の行に // <check>: <理由> (§Cn) を書き、push / pop で範囲を閉じる",
-    why: "範囲を閉じない無効化はファイル末尾と include 先まで警告を消す",
+    message: "#pragma warning は #if defined(_MSC_VER) の中にだけ書く。disable は直前の行に // <check>: <理由> (§Cn) を書き、push / pop で範囲を閉じる (suppress・push のレベル指定・警告レベルの変更は使わない)",
+    why: "範囲を閉じない無効化はファイル末尾と include 先まで警告を消し、_MSC_VER の外の #pragma warning は clang / GCC の -Wunknown-pragmas で Praesidium の警告パスを落とす",
+    suppressible: false,
+  },
+  {
+    id: "C9.4", name: "analysis-suppression", severity: "error",
+    title: "clang / GCC の警告・解析の抑制",
+    files: PATHS.native, scope: "added-lines", check: checkAnalysisSuppression,
+    message: "#pragma clang|GCC diagnostic ignored|warning・#pragma system_header・_Pragma / __pragma・[[clang::suppress]]・__clang_analyzer__ は理由があっても使わない。警告と解析の指摘はコードを直す",
+    why: "ソース内の抑制は PR が -w を渡すのと同じ効果を持ち、Praesidium (native.analysis-suppression) はリポ全体で拒否する",
     suppressible: false,
   },
 ];
