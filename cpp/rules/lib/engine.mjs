@@ -1,21 +1,38 @@
 /** RULE_CODE_CPP §C9.5 規則表の実行: 規則をファイル 1 本と変更集合に掛け、finding (抜粋なし) を作る。 */
 
 import { maskCommentsAndLiterals } from "./mask.mjs";
+import { nativeReadings, nativeViews } from "./native-mask.mjs";
 import { GLOBAL_EXCLUDE, languageOf, normalizePath } from "./paths.mjs";
-import { suppressionFor } from "./suppression.mjs";
+import { isSuppressed } from "./suppression.mjs";
 import { lineIndex } from "./syntax.mjs";
 
 export const MAX_FINDINGS_PER_FILE = 200;
 
-export function scanContext(file, source, lang, config) {
-  const masked = maskCommentsAndLiterals(source, { language: lang });
-  const comments = maskCommentsAndLiterals(source, { language: lang, keepComments: true });
+function makeContext(fields) {
   return {
-    file, source, lang, config, masked, comments,
-    maskedLines: masked.split("\n"),
-    commentLines: comments.split("\n"),
-    lineAt: lineIndex(masked),
+    ...fields,
+    maskedLines: fields.masked.split("\n"),
+    commentLines: fields.comments.split("\n"),
   };
+}
+
+/**
+ * 規則を掛けるコンテキストの一覧。CMake・シェーダ・JSON は 1 つ。C/C++ は字句規則の読み方 (C17 / C23 / C++) ごとに
+ * 1 つずつ作り、呼び出し側が finding を合算する (native-mask.mjs の nativeReadings)。
+ * masked = コメントとリテラルの中身を空白にしたもの、logical = プリプロセッサの論理行の形、
+ * comments = リテラルの中身だけを空白にしたもの。どれも原文と同じ位置に改行があるので、行は lineAt で数える。
+ */
+export function scanContexts(file, source, lang, config) {
+  if (lang !== "cpp") {
+    const masked = maskCommentsAndLiterals(source, { language: lang });
+    const comments = maskCommentsAndLiterals(source, { language: lang, keepComments: true });
+    return [makeContext({ file, source, lang, config, masked, logical: masked, comments, lineAt: lineIndex(masked) })];
+  }
+  const lineAt = lineIndex(source);
+  return nativeReadings(file, source).map((reading) => {
+    const views = nativeViews(source, reading);
+    return makeContext({ file, source, lang, config, reading: reading.name, masked: views.code, logical: views.logical, comments: views.comments, lineAt });
+  });
 }
 
 export function ruleEnabled(rule, config) {
@@ -31,7 +48,7 @@ export function ruleApplies(rule, file, config) {
 }
 
 export function patternHits(rule, ctx) {
-  const text = rule.mask === "none" ? ctx.source : rule.mask === "comments" ? ctx.comments : ctx.masked;
+  const text = rule.mask === "none" ? ctx.source : rule.mask === "comments" ? ctx.comments : rule.mask === "logical" ? ctx.logical : ctx.masked;
   const flags = new Set(rule.pattern.flags);
   flags.add("g");
   flags.add("d");
@@ -68,20 +85,26 @@ export function scanSource(rules, file, source, { addedLines = null, config }) {
   if (!lang) return [];
   const added = toAddedSet(addedLines);
   if (added && added.size === 0) return [];
-  const ctx = scanContext(rel, String(source), lang, config);
+  const contexts = scanContexts(rel, String(source), lang, config);
   const findings = [];
-  const seen = new Set();
+  // finding は規則と行の組で 1 件。読み方ごとに判定し、どれか 1 つの読み方で抑制されていなければ報告する。
+  // 抑制の判定は読み方・規則・行の組ごとに 1 回だけ (1 行に一致が並んでも行の数に比例する)。
+  const reported = new Set();
   for (const rule of rules) {
     if (rule.scope === "changeset" || !ruleEnabled(rule, config) || !ruleApplies(rule, rel, config)) continue;
-    const hits = rule.check ? rule.check(ctx) : patternHits(rule, ctx);
-    for (const hit of hits) {
-      const lines = hit.anyOf ?? [hit.line];
-      if (rule.scope === "added-lines" && added && !lines.some((l) => added.has(l))) continue;
-      if (rule.suppressible !== false && suppressionFor(ctx, hit.line, `cpp-rules-${rule.id}`)) continue;
-      const key = `${rule.name}:${hit.line}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      findings.push({ id: rule.id, rule: rule.name, file: rel, line: hit.line, severity: rule.severity, message: rule.message });
+    for (const ctx of contexts) {
+      const judged = new Set();
+      const hits = rule.check ? rule.check(ctx) : patternHits(rule, ctx);
+      for (const hit of hits) {
+        const key = `${rule.name}:${hit.line}`;
+        if (reported.has(key) || judged.has(key)) continue;
+        const lines = hit.anyOf ?? [hit.line];
+        if (rule.scope === "added-lines" && added && !lines.some((l) => added.has(l))) continue;
+        judged.add(key);
+        if (rule.suppressible !== false && isSuppressed(ctx, hit.line, `cpp-rules-${rule.id}`)) continue;
+        reported.add(key);
+        findings.push({ id: rule.id, rule: rule.name, file: rel, line: hit.line, severity: rule.severity, message: rule.message });
+      }
     }
   }
   findings.sort((a, b) => a.line - b.line || a.id.localeCompare(b.id, "en", { numeric: true }));

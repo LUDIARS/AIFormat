@@ -1,25 +1,37 @@
-/** RULE_CODE_CPP §C9.5 規則表: コメント・文字列リテラルの空白化 (行番号と列を保つ)。 */
+/**
+ * RULE_CODE_CPP §C9.5 規則表: コメント・文字列リテラルの空白化 (行番号と列を保つ)。
+ * C/C++ の字句処理は Revisor の同期コピー (native-mask.mjs が native-lexer.mjs を使う)。
+ * このファイルが自前の字句処理を持つのは CMake とシェーダ (GLSL) だけ。
+ */
 
-const STRING_PREFIX = new Set(["u8", "u", "U", "L"]);
-const RAW_PREFIX = new Set(["R", "u8R", "uR", "UR", "LR"]);
+import { CXX_READINGS, nativeViews } from "./native-mask.mjs";
 
 /**
  * コメントと文字列・文字リテラルを空白にする。改行 (\n, \r) は残すので、行番号と列位置が保たれる。
- * Revisor `src/praesidium/rules.mjs` と同じ方針に、C++ の次を足したもの:
- * raw 文字列 `R"d(...)d"`、桁区切り `1'000` (文字リテラルとして扱わない)、行コメントの `\` 継続。
- * `#include "x.h"` の header-name は文字列リテラルではない (C++ の文法上も別 token) ので残す。
+ *
+ * - cpp: C++ の字句規則で読む (native-mask.mjs の code / comments ビュー)。リテラルは中身だけを空白にし、
+ *   引用符と接頭辞は残す。`#include "x.h"` / `<x.h>` の header-name は残す。規則表の実行 (engine.mjs) は
+ *   ファイルの言語に合わせて C と C++ の読み方を選ぶ。ここは単体で呼ぶとき (テストと同期先の補助) の入口。
+ * - shader: GLSL。C と同じコメントに、raw 文字列・桁区切り・行コメントの `\` 継続を足して読む。
+ * - cmake: コメント (`#`・`#[[ ]]`) だけを空白化し、引用引数は残す (`"/utf-8"` 等を検査するため)。
  *
  * @param {string} source
  * @param {{ language?: "cpp"|"shader"|"cmake"|"json", keepComments?: boolean }} [options]
  *   keepComments: true ならリテラルだけを空白化してコメントを残す (NOLINT など注釈の検査用)。
- *   cmake はコメント (`#`・`#[[ ]]`) だけを空白化し、引用引数は残す (`"/utf-8"` 等を検査するため)。
  */
 export function maskCommentsAndLiterals(source, { language = "cpp", keepComments = false } = {}) {
   const src = String(source);
   if (language === "json") return src;
   if (language === "cmake") return keepComments ? src : maskCMake(src);
+  if (language === "cpp") {
+    const views = nativeViews(src, CXX_READINGS[0]);
+    return keepComments ? views.comments : views.code;
+  }
   return maskCLike(src, keepComments);
 }
+
+const STRING_PREFIX = new Set(["u8", "u", "U", "L"]);
+const RAW_PREFIX = new Set(["R", "u8R", "uR", "UR", "LR"]);
 
 function blankInto(out, src, from, to) {
   for (let i = from; i < to; i++) {

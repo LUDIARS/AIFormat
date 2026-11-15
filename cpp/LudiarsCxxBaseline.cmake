@@ -5,7 +5,11 @@
 #   §C4.3 警告 / §C4.4 compile_commands の検査 / §C4.7 他リポ src の include 検査 /
 #   §C1.7 modules 不採用 / §C2.8 未初期化の pattern 化 / §C2.9 標準ライブラリの hardening /
 #   §C3.7 sanitizer / §C7.4 浮動小数の決定性。
+#   配布ビルドのコンパイラ・リンカのハードニング (_FORTIFY_SOURCE、stack protector、CFI / CET、
+#   PIE / RELRO、/guard:cf) は持たない。release の preset では Lorica の lorica_harden_target を使う (§C2.9)。
 # 版: LUDIARS_CXX_BASELINE_VERSION (下の値)。互換性を壊す変更で major を上げる。
+#   2.0.0: ludiars_cxx_enable_hardening を廃止 (hardening はビルド全体に付ける。§C4.10)。
+#          非推奨 (-Wdeprecated-declarations / C4996) のエラー化を準拠 target に限る。
 # 同期: 各 C++ リポへは AIFormat/cpp/README.md の手順でコピーする (cmake/ 配下を推奨)。
 #   コピー先の 1 行目は "# synced-from AIFormat/cpp@<commit>"。中身は書き換えない。
 #   リポ固有の設定は include した側の CMakeLists.txt に書く (§C9.3 と同じ扱い)。
@@ -33,11 +37,11 @@
 #   LUDIARS_CXX_STANDARD            20 | 23   (既定 20)        §C4.1
 #   LUDIARS_CXX_WARNINGS_AS_ERRORS  ON | OFF  (既定 OFF)       §C4.3 verify preset で ON
 #   LUDIARS_CXX_HARDENING           ON | OFF  (既定 OFF)       §C2.9 debug / test / sanitizer preset で ON
+#                                                              (ビルド全体に同じ値で付く。target ごとには付けない)
 #   LUDIARS_CXX_SANITIZE            OFF | asan-ubsan | tsan    §C3.7 sanitizer preset で指定
 #   LUDIARS_CXX_MSVC_CONFORMANCE    ON | OFF  (既定 OFF)       §C4.2 /permissive- /Zc:preprocessor の opt-in
 #
 # 関数
-#   ludiars_cxx_enable_hardening(<target>)                                   §C2.9 / §C2.8
 #   ludiars_cxx_enable_sanitizers(<target> [THREAD] [UNSIGNED_INTEGER_OVERFLOW] [IMPLICIT_CONVERSION])
 #                                                                            §C3.7 / §C2.6 / §C2.7
 #   ludiars_cxx_enable_strict_warnings(<target>)                             §C4.3 厳しい警告セット / §C2.6 境界層は必須
@@ -46,7 +50,7 @@
 #   ludiars_cxx_check_targets(PREFIX <prefix> [MODE WARNING|FATAL_ERROR])    §C4.1 / §C4.2 / §C4.4 / §C4.7 / §C7.4
 # ---------------------------------------------------------------------------
 
-set(_LUDIARS_CXX_BASELINE_THIS_VERSION "1.0.0")
+set(_LUDIARS_CXX_BASELINE_THIS_VERSION "2.0.0")
 
 if(CMAKE_VERSION VERSION_LESS 3.20)
   message(FATAL_ERROR
@@ -67,6 +71,10 @@ macro(_ludiars_cxx_apply_directory_defaults)
   set(CMAKE_CXX_EXTENSIONS OFF)
   # §C1.7 modules は不採用。CMake 3.28+ の依存スキャン (clang-scan-deps 依存) を止める
   set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
+  # §C2.9 / §C4.10 hardening はディレクトリ全体に付ける (LUDIARS_CXX_HARDENING=ON のとき。下の節)
+  if(COMMAND _ludiars_cxx_apply_directory_hardening)
+    _ludiars_cxx_apply_directory_hardening()
+  endif()
 endmacro()
 
 # ---------------------------------------------------------------------------
@@ -160,7 +168,7 @@ endif()
 option(LUDIARS_CXX_WARNINGS_AS_ERRORS
   "§C4.3 警告のエラー化。verify preset で ON、add_subdirectory で取り込むホストの既定は OFF" OFF)
 option(LUDIARS_CXX_HARDENING
-  "§C2.9 標準ライブラリの hardening を ludiars_cxx_warnings 経由で付ける (debug / test / sanitizer preset)" OFF)
+  "§C2.9 標準ライブラリの hardening をビルド全体に付ける (debug / test / sanitizer preset)" OFF)
 option(LUDIARS_CXX_MSVC_CONFORMANCE
   "§C4.2 MSVC の /permissive- /Zc:preprocessor を ludiars_cxx_usage に付ける (opt-in)" OFF)
 
@@ -202,7 +210,8 @@ endmacro()
 # ===========================================================================
 # §C4.2 (a) ludiars_cxx_usage — 全 target が PUBLIC でリンクする使用要件
 #   consumer の TU にも必要なものだけを持つ: 標準、MSVC の文字コードと __cplusplus、
-#   §C7.4 の fp フラグ。警告は入れない (§C4.3)。
+#   §C7.4 の fp フラグ、LUDIARS_CXX_HARDENING=ON のときの §C2.9 hardening (§C4.10 と同じく
+#   inline 関数の中身を変えるので consumer の TU にも同じ値が要る)。警告は入れない (§C4.3)。
 # ===========================================================================
 add_library(ludiars_cxx_usage INTERFACE)
 
@@ -242,7 +251,7 @@ endif()
 
 # ===========================================================================
 # §C4.2 (b) ludiars_cxx_warnings — 全 target が PRIVATE でリンクする
-#   警告 (§C4.3)、Windows SDK のマクロ衛生、§C2.9 hardening (option)、§C3.7 sanitizer (option)。
+#   警告 (§C4.3)、Windows SDK のマクロ衛生、§C3.7 sanitizer (option)。§C2.9 hardening は usage とディレクトリ (下の節)。
 #   PUBLIC / INTERFACE で伝播させない (consumer のビルドを壊さないため)。
 # ===========================================================================
 add_library(ludiars_cxx_warnings INTERFACE)
@@ -256,7 +265,8 @@ target_compile_definitions(ludiars_cxx_warnings INTERFACE
 #
 #   目的 (規約)                    clang / gcc                    MSVC
 #   -----------------------------  -----------------------------  ------------------------------
-#   基本 (Praesidium と同じ)       -Wall -Wextra                  /W4
+#   基本 (Praesidium の警告パス)   -Wall -Wextra -Wformat=2       /W4
+#                                  -Wvla -Wnull-dereference       (VLA は MSVC で常にエラー)
 #   仮想 dtor 欠落 (§C1.5)         -Wnon-virtual-dtor             /w44265
 #   return の欠落 (§C1.3)          -Wreturn-type (-Wall に含む)   C4715 (既定で有効)
 #   書式文字列 (§C2.1 / §C8.4)     -Wformat=2                     /w44774 (既定で無効なので有効化)
@@ -270,6 +280,8 @@ target_compile_definitions(ludiars_cxx_warnings INTERFACE
 #
 #   clang-cl は MSVC 列に従い、clang 専用の行 (-Wthread-safety / -Wdangling-gsl /
 #   -Wreorder-init-list とそのエラー化) も /clang: で付ける。
+#   Praesidium の警告パス (Revisor src/praesidium/native-baseline.mjs の NATIVE_WARNINGS) が有効にする
+#   警告はすべて含める。Revisor 側の一覧が変わったらここも合わせる。
 #   -Wpedantic は入れない (##__VA_ARGS__ で大量に出る。RULE_CODE_CPP「採らなかった論点」)。
 #   -Wshadow -Wconversion -Wsign-conversion は ludiars_cxx_enable_strict_warnings で opt-in。
 if(_LUDIARS_CXX_FAMILY STREQUAL "msvc" OR _LUDIARS_CXX_FAMILY STREQUAL "clang-cl")
@@ -279,14 +291,15 @@ if(_LUDIARS_CXX_FAMILY STREQUAL "msvc" OR _LUDIARS_CXX_FAMILY STREQUAL "clang-cl
     "$<$<COMPILE_LANGUAGE:${_LUDIARS_ALL_LANGS}>:/w44774>"
     "$<$<COMPILE_LANGUAGE:${_LUDIARS_ALL_LANGS}>:/w44062>")
   if(_LUDIARS_CXX_FAMILY STREQUAL "clang-cl")
-    # §C6.6 / §C6.5 / §C8.3 clang-cl でも clang 専用の検査を抜かさない
+    # §C6.6 / §C6.5 / §C8.3 clang-cl でも clang 専用の検査を抜かさない。
+    # Praesidium の警告パスの -Wvla -Wnull-dereference も (/W4 は -Wall -Wextra に当たる)
     target_compile_options(ludiars_cxx_warnings INTERFACE
-      "$<${_LUDIARS_CLANG_ALL}:/clang:-Wthread-safety>"
+      "$<${_LUDIARS_CLANG_ALL}:/clang:-Wthread-safety;/clang:-Wvla;/clang:-Wnull-dereference>"
       "$<${_LUDIARS_CLANG_CXX}:/clang:-Wdangling-gsl;/clang:-Wreorder-init-list>")
   endif()
 else()
   target_compile_options(ludiars_cxx_warnings INTERFACE
-    "$<$<COMPILE_LANGUAGE:${_LUDIARS_ALL_LANGS}>:-Wall;-Wextra;-Wformat=2;-Wsign-compare>"
+    "$<$<COMPILE_LANGUAGE:${_LUDIARS_ALL_LANGS}>:-Wall;-Wextra;-Wformat=2;-Wvla;-Wnull-dereference;-Wsign-compare>"
     "$<$<COMPILE_LANGUAGE:${_LUDIARS_CXX_LANGS}>:-Wnon-virtual-dtor>")
   if(_LUDIARS_CXX_FAMILY STREQUAL "clang")
     target_compile_options(ludiars_cxx_warnings INTERFACE
@@ -300,13 +313,17 @@ endif()
 #   段 1: 各 §C が要求する個別のエラー化。warnings をリンクした全 target に付く。
 #   段 2: 全警告のエラー化。「準拠 target 一覧」(ludiars_cxx_mark_warnings_compliant) の
 #         target にだけ付く (ラチェット)。consumer target のプロパティを genex で読む。
+#         非推奨 (-Wdeprecated-declarations / C4996) のエラー化もここ。準拠前の target には
+#         MSVC が C4996 を出す CRT 関数 (strcpy など) の既存の呼び出しが残りうるので、段 1 に置くと
+#         移行が止まる (Lorica の lorica_deprecate_unsafe_apis も準拠 target にだけ付ける)。
 if(LUDIARS_CXX_WARNINGS_AS_ERRORS)
   if(_LUDIARS_CXX_FAMILY STREQUAL "msvc" OR _LUDIARS_CXX_FAMILY STREQUAL "clang-cl")
     target_compile_options(ludiars_cxx_warnings INTERFACE
-      # §C1.3 return の欠落 / §C2.1 書式文字列 / §C5.1 nodiscard / §C2.13 非推奨 / §C1.5 仮想 dtor
-      "$<$<COMPILE_LANGUAGE:${_LUDIARS_ALL_LANGS}>:/we4715;/we4774;/we4834;/we4996>"
+      # §C1.3 return の欠落 / §C2.1 書式文字列 / §C5.1 nodiscard / §C1.5 仮想 dtor
+      "$<$<COMPILE_LANGUAGE:${_LUDIARS_ALL_LANGS}>:/we4715;/we4774;/we4834>"
       "$<$<COMPILE_LANGUAGE:${_LUDIARS_CXX_LANGS}>:/we4265;/we4062>"
-      "$<$<AND:$<COMPILE_LANGUAGE:${_LUDIARS_ALL_LANGS}>,$<BOOL:$<TARGET_PROPERTY:LUDIARS_CXX_WARNINGS_COMPLIANT>>>:/WX>")
+      # 段 2: 全警告と §C2.13 非推奨 (準拠 target だけ)
+      "$<$<AND:$<COMPILE_LANGUAGE:${_LUDIARS_ALL_LANGS}>,$<BOOL:$<TARGET_PROPERTY:LUDIARS_CXX_WARNINGS_COMPLIANT>>>:/WX;/we4996>")
     if(_LUDIARS_CXX_FAMILY STREQUAL "clang-cl")
       target_compile_options(ludiars_cxx_warnings INTERFACE
         # §C6.6 スレッド安全性 / §C6.5 ダングリング / §C8.3 指示付き初期化子の順序
@@ -315,11 +332,12 @@ if(LUDIARS_CXX_WARNINGS_AS_ERRORS)
     endif()
   else()
     target_compile_options(ludiars_cxx_warnings INTERFACE
-      # §C1.3 return の欠落 / §C2.1 書式文字列 / §C5.1 nodiscard / §C2.13 非推奨
-      "$<$<COMPILE_LANGUAGE:${_LUDIARS_ALL_LANGS}>:-Werror=return-type;-Werror=format-nonliteral;-Werror=format-security;-Werror=unused-result;-Werror=deprecated-declarations>"
+      # §C1.3 return の欠落 / §C2.1 書式文字列 / §C5.1 nodiscard
+      "$<$<COMPILE_LANGUAGE:${_LUDIARS_ALL_LANGS}>:-Werror=return-type;-Werror=format-nonliteral;-Werror=format-security;-Werror=unused-result>"
       # §C1.5 仮想 dtor
       "$<$<COMPILE_LANGUAGE:${_LUDIARS_CXX_LANGS}>:-Werror=non-virtual-dtor>"
-      "$<$<AND:$<COMPILE_LANGUAGE:${_LUDIARS_ALL_LANGS}>,$<BOOL:$<TARGET_PROPERTY:LUDIARS_CXX_WARNINGS_COMPLIANT>>>:-Werror>")
+      # 段 2: 全警告と §C2.13 非推奨 (準拠 target だけ)
+      "$<$<AND:$<COMPILE_LANGUAGE:${_LUDIARS_ALL_LANGS}>,$<BOOL:$<TARGET_PROPERTY:LUDIARS_CXX_WARNINGS_COMPLIANT>>>:-Werror;-Werror=deprecated-declarations>")
     if(_LUDIARS_CXX_FAMILY STREQUAL "clang")
       target_compile_options(ludiars_cxx_warnings INTERFACE
         # §C6.6 スレッド安全性 / §C6.5 ダングリング / §C8.3 指示付き初期化子の順序
@@ -331,10 +349,20 @@ endif()
 
 # ===========================================================================
 # §C2.9 標準ライブラリの hardening / §C2.8 未初期化の pattern 化
-#   _GLIBCXX_ASSERTIONS と _LIBCPP_HARDENING_MODE は ABI を変えないので、hardening 有無の
-#   TU が混在してもリンクできる。MSVC は既定の _ITERATOR_DEBUG_LEVEL を上書きしない
-#   (構成ごとの値が食い違うと LNK2038 になるため)。代わりに ABI を変えない
+#   _GLIBCXX_ASSERTIONS と _LIBCPP_HARDENING_MODE は ABI を変えないので、リンク自体は通る。
+#   ただし付けた TU と付けていない TU が同じ inline 関数 (std::vector::operator[] など) を持つと、
+#   リンカはどちらか 1 つを残し、検査の無いほうが選ばれうる (§C4.10。g++ 13 / clang++ 18 の -O0 で、
+#   付けた TU の範囲外読み出しが止まらないことを確認した)。そのため target ごとには付けず、ビルド全体に
+#   同じ値で付ける:
+#     - ludiars_cxx_usage (INTERFACE)。全 target が PUBLIC でリンクするので、LUDIARS の全 target と、
+#       それを取り込むホストの target にも同じ値が付く。
+#     - baseline を include したディレクトリ (以下)。後から add_subdirectory する third_party など、
+#       usage をリンクしない target にも付く。最上位で include すればビルド全体になる。
+#   ビルド済みのライブラリ (IMPORTED) には付けられない。MSVC は既定の _ITERATOR_DEBUG_LEVEL を
+#   上書きしない (構成ごとの値が食い違うと LNK2038 になるため)。代わりに ABI を変えない
 #   _MSVC_STL_HARDENING (VS 2022 17.14 以降で有効、それ以前は無視される) を付ける。
+#   配布ビルドの FORTIFY・stack protector・CET などは Lorica の lorica_harden_target(<target> EXTENDED) が付ける。
+#   Lorica は未初期化の自動変数を =zero にするので、LUDIARS_CXX_HARDENING (=pattern) と同じ preset では使わない。
 # ===========================================================================
 set(_LUDIARS_CXX_TRIVIAL_INIT_FLAG "")
 if(_LUDIARS_CXX_FAMILY STREQUAL "gcc" OR _LUDIARS_CXX_FAMILY STREQUAL "clang")
@@ -345,30 +373,48 @@ if(_LUDIARS_CXX_FAMILY STREQUAL "gcc" OR _LUDIARS_CXX_FAMILY STREQUAL "clang")
   endif()
 endif()
 set_property(GLOBAL PROPERTY _LUDIARS_CXX_TRIVIAL_INIT_FLAG "${_LUDIARS_CXX_TRIVIAL_INIT_FLAG}")
+set_property(GLOBAL PROPERTY _LUDIARS_CXX_HARDENING "${LUDIARS_CXX_HARDENING}")
 
-# 内部: <target> に hardening を <scope> (PRIVATE / INTERFACE) で付ける
-function(_ludiars_cxx_apply_hardening target scope)
-  _ludiars_cxx_load_globals()
-  target_compile_definitions(${target} ${scope}
-    # §C2.9 libstdc++ (GCC / Linux clang)
-    _GLIBCXX_ASSERTIONS
-    # §C2.9 libc++ 18+ (Apple clang / NDK r27+)。libstdc++ と MSVC STL では無視される
-    _LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE
-    # §C2.9 MSVC STL。_ITERATOR_DEBUG_LEVEL は触らない
-    _MSVC_STL_HARDENING=1)
-  if(_LUDIARS_CXX_TRIVIAL_INIT_FLAG)
-    # §C2.8 初期化忘れを決まったバイトパターンにして再現可能にする (検出は sanitizer / テスト側)
-    target_compile_options(${target} ${scope}
-      "$<$<COMPILE_LANGUAGE:${_LUDIARS_ALL_LANGS}>:${_LUDIARS_CXX_TRIVIAL_INIT_FLAG}>")
+set(_LUDIARS_CXX_HARDENING_DEFINITIONS
+  # §C2.9 libstdc++ (GCC / Linux clang)
+  _GLIBCXX_ASSERTIONS
+  # §C2.9 libc++ 18+ (Apple clang / NDK r27+)。libstdc++ と MSVC STL では無視される
+  _LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE
+  # §C2.9 MSVC STL。_ITERATOR_DEBUG_LEVEL は触らない
+  _MSVC_STL_HARDENING=1)
+set_property(GLOBAL PROPERTY _LUDIARS_CXX_HARDENING_DEFINITIONS "${_LUDIARS_CXX_HARDENING_DEFINITIONS}")
+
+# 内部: include したディレクトリ (と、その後に追加する配下のディレクトリ) の全 target に hardening を付ける。
+# 親から引き継いでいるディレクトリには重ねて付けない。
+macro(_ludiars_cxx_apply_directory_hardening)
+  get_property(_ludiars_hardening GLOBAL PROPERTY _LUDIARS_CXX_HARDENING)
+  if(_ludiars_hardening)
+    get_property(_ludiars_defs GLOBAL PROPERTY _LUDIARS_CXX_HARDENING_DEFINITIONS)
+    get_property(_ludiars_init GLOBAL PROPERTY _LUDIARS_CXX_TRIVIAL_INIT_FLAG)
+    get_directory_property(_ludiars_dir_defs COMPILE_DEFINITIONS)
+    if(NOT "_GLIBCXX_ASSERTIONS" IN_LIST _ludiars_dir_defs)
+      add_compile_definitions(${_ludiars_defs})
+      if(_ludiars_init)
+        # §C2.8 初期化忘れを決まったバイトパターンにして再現可能にする (検出は sanitizer / テスト側)
+        add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX,OBJC,OBJCXX>:${_ludiars_init}>")
+      endif()
+    endif()
+    unset(_ludiars_defs)
+    unset(_ludiars_init)
+    unset(_ludiars_dir_defs)
   endif()
-endfunction()
+  unset(_ludiars_hardening)
+endmacro()
 
 if(LUDIARS_CXX_HARDENING)
-  _ludiars_cxx_apply_hardening(ludiars_cxx_warnings INTERFACE)
-  if(NOT _LUDIARS_CXX_TRIVIAL_INIT_FLAG AND NOT _LUDIARS_CXX_FAMILY MATCHES "^(msvc|clang-cl)$")
+  target_compile_definitions(ludiars_cxx_usage INTERFACE ${_LUDIARS_CXX_HARDENING_DEFINITIONS})
+  if(_LUDIARS_CXX_TRIVIAL_INIT_FLAG)
+    target_compile_options(ludiars_cxx_usage INTERFACE
+      "$<$<COMPILE_LANGUAGE:${_LUDIARS_ALL_LANGS}>:${_LUDIARS_CXX_TRIVIAL_INIT_FLAG}>")
+  elseif(NOT _LUDIARS_CXX_FAMILY MATCHES "^(msvc|clang-cl)$")
     message(STATUS "LudiarsCxxBaseline: §C2.8 -ftrivial-auto-var-init=pattern はこのコンパイラで使えないため付けない")
   endif()
-  message(STATUS "LudiarsCxxBaseline: §C2.9 hardening ON (ludiars_cxx_warnings 経由)")
+  message(STATUS "LudiarsCxxBaseline: §C2.9 hardening ON (ビルド全体: ludiars_cxx_usage と ${CMAKE_CURRENT_SOURCE_DIR} 以下)")
 endif()
 
 # ===========================================================================
@@ -496,20 +542,13 @@ function(_ludiars_cxx_require_own_target fn target)
   endif()
 endfunction()
 
-# ludiars_cxx_enable_hardening(<target>)
-#   §C2.9 / §C2.8。preset 全体で付けるなら LUDIARS_CXX_HARDENING=ON を使い、これは
-#   特定の target (テスト実行ファイル等) だけに付けたいときに使う。PRIVATE で付ける。
-function(ludiars_cxx_enable_hardening target)
-  if(ARGC GREATER 1)
-    message(FATAL_ERROR "LudiarsCxxBaseline: ludiars_cxx_enable_hardening は target を 1 つだけ取る (余分: ${ARGN})")
-  endif()
-  _ludiars_cxx_require_own_target(ludiars_cxx_enable_hardening ${target})
-  get_target_property(type ${target} TYPE)
-  if(type STREQUAL "INTERFACE_LIBRARY")
-    _ludiars_cxx_apply_hardening(${target} INTERFACE)
-  else()
-    _ludiars_cxx_apply_hardening(${target} PRIVATE)
-  endif()
+# ludiars_cxx_enable_hardening(<target>) — 2.0.0 で廃止。
+#   target ごとに付けると、付いていない TU と同じ inline 関数が混ざる (§C4.10)。preset の
+#   LUDIARS_CXX_HARDENING=ON でビルド全体に付ける。呼んだ箇所が分かるように止める。
+function(ludiars_cxx_enable_hardening)
+  message(FATAL_ERROR
+    "LudiarsCxxBaseline: ludiars_cxx_enable_hardening は 2.0.0 で廃止した。hardening は target ごとに付けず、"
+    "preset の LUDIARS_CXX_HARDENING=ON でビルド全体に付ける (RULE_CODE_CPP §C2.9 / §C4.10)。")
 endfunction()
 
 # ludiars_cxx_enable_sanitizers(<target> [THREAD] [UNSIGNED_INTEGER_OVERFLOW] [IMPLICIT_CONVERSION])

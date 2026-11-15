@@ -245,25 +245,181 @@ export function checkNolintForm(ctx) {
   return hits;
 }
 
-/** §C9.4: `#pragma warning(disable)` / `diagnostic ignored` は直前の行に理由、push / pop で囲む。 */
+// プリプロセッサ指令の中の空白 (clang は \f と \v も空白として読む)。
+const BLANK = "[ \\t\\f\\v]";
+const DIRECTIVE_LINE = new RegExp(`^${BLANK}*#${BLANK}*([A-Za-z_]\\w*)([^\\r\\n]*)`, "gm");
+const MSVC_WARNING_PRAGMA = /^\s*warning\s*\(([^)]*)\)?/;
+const REASON_LINE = /\/\/.*:\s*\S.*\(§C\d+(?:\.\d+)*\)/;
+
+/** 指令の `#` の位置 (論理行の先頭に畳まれた空白やコメントを飛ばす)。 */
+function directiveOffset(m) {
+  let offset = 0;
+  while (/[ \t\f\v]/.test(m[0][offset] ?? "")) offset++;
+  return m.index + offset;
+}
+
+const MSVC_DEFINED = String.raw`(?:defined\s*\(\s*_MSC_VER\s*\)|defined\s+_MSC_VER)`;
+const MSVC_ONLY_TERM = new RegExp(String.raw`^(?:${MSVC_DEFINED}|_MSC_VER(?:\s*(?:>=|>|==)\s*\d+[uUlL]*)?)$`);
+const NOT_MSVC = new RegExp(String.raw`^!\s*(?:${MSVC_DEFINED}|_MSC_VER|\(\s*${MSVC_DEFINED}\s*\))$`);
+
+/**
+ * 条件 `kind expr` (#if / #ifdef / #ifndef) が MSVC (と clang-cl) でだけ真になるか (msvc) と、
+ * MSVC でだけ偽になるか (notMsvc)。`||` を含む式は判定しない (msvc にしない)。
+ */
+function msvcCondition(kind, expr) {
+  const e = expr.replace(/\s+/g, " ").trim();
+  if (kind === "ifdef") return { msvc: e === "_MSC_VER", notMsvc: false };
+  if (kind === "ifndef") return { msvc: false, notMsvc: e === "_MSC_VER" };
+  const notMsvc = NOT_MSVC.test(e);
+  if (/\|\||\bor\b|\?/.test(e)) return { msvc: false, notMsvc };
+  const terms = e.split(/&&|\band\b/).map((t) => t.trim().replace(/^\((.*)\)$/, "$1").trim());
+  return { msvc: terms.some((t) => MSVC_ONLY_TERM.test(t)), notMsvc };
+}
+
+/**
+ * §C9.4: 警告の抑制で許すのは MSVC の `#pragma warning(disable: <番号>)` だけ。
+ * `#if defined(_MSC_VER)` の中に置き (外では clang / GCC の -Wunknown-pragmas になり Praesidium の警告パスで落ちる)、
+ * 直前の行に `// <check>: <理由> (§Cn)` を書き、`#pragma warning(push)` / `(pop)` で範囲を閉じる。
+ * `#pragma warning(suppress: ...)`・`(push, <level>)`・`(<level>: ...)` は形式の外の抑制として報告する。
+ * 論理行 (行継続とコメントを畳んだ形) を 1 回だけ前から読み、条件の入れ子と push / pop の深さを数える (線形)。
+ */
 export function checkPragmaDisable(ctx) {
-  const lines = ctx.maskedLines;
   const hits = [];
-  const family = (t) => (/#\s*pragma\s+warning\b/.test(t) ? "msvc" : /#\s*pragma\s+(?:clang|GCC)\s+diagnostic\b/.test(t) ? "gcc" : null);
-  const isPush = (t) => /#\s*pragma\s+warning\s*\(\s*push\b/.test(t) || /#\s*pragma\s+(?:clang|GCC)\s+diagnostic\s+push\b/.test(t);
-  const isPop = (t) => /#\s*pragma\s+warning\s*\(\s*pop\b/.test(t) || /#\s*pragma\s+(?:clang|GCC)\s+diagnostic\s+pop\b/.test(t);
-  lines.forEach((t, i) => {
-    if (!/#\s*pragma\s+(?:warning\s*\(\s*disable\b|(?:clang|GCC)\s+diagnostic\s+ignored\b)/.test(t)) return;
-    const fam = family(t);
-    let depth = 0;
-    for (let k = 0; k < i; k++) if (family(lines[k]) === fam) { if (isPush(lines[k])) depth++; else if (isPop(lines[k])) depth--; }
-    const popped = lines.slice(i + 1).some((u) => family(u) === fam && isPop(u));
-    let prev = i - 1;
+  const groups = [];
+  let msvc = false;
+  let depth = 0;
+  let lastPop = 0;
+  const disables = [];
+  for (const m of ctx.logical.matchAll(DIRECTIVE_LINE)) {
+    const [, name, rest] = m;
+    if (name === "if" || name === "ifdef" || name === "ifndef") {
+      const c = msvcCondition(name, rest);
+      groups.push({ parent: msvc, notMsvcSeen: c.notMsvc });
+      msvc = msvc || c.msvc;
+    } else if (name === "elif" || name === "elifdef" || name === "elifndef") {
+      const group = groups.at(-1);
+      if (!group) continue;
+      const c = msvcCondition(name === "elif" ? "if" : name.slice(2), rest);
+      msvc = group.parent || c.msvc || group.notMsvcSeen;
+      group.notMsvcSeen ||= c.notMsvc;
+    } else if (name === "else") {
+      const group = groups.at(-1);
+      if (group) msvc = group.parent || group.notMsvcSeen;
+    } else if (name === "endif") {
+      const group = groups.pop();
+      msvc = group ? group.parent : false;
+    } else if (name === "pragma") {
+      const w = MSVC_WARNING_PRAGMA.exec(rest);
+      if (!w) continue;
+      const line = ctx.lineAt(directiveOffset(m));
+      const spec = w[1];
+      if (!msvc) hits.push({ line });
+      if (/^\s*push\s*$/.test(spec)) depth++;
+      else if (/^\s*pop\s*$/.test(spec)) { depth--; lastPop = line; }
+      else if (/^\s*push\s*,|\bsuppress\b|(?:^|;)\s*[1-4]\s*:/.test(spec)) hits.push({ line });
+      if (/\bdisable\b/.test(spec)) disables.push({ line, depth });
+    }
+  }
+  for (const { line, depth: open } of disables) {
+    let prev = line - 2;
     while (prev >= 0 && !ctx.commentLines[prev].trim()) prev--;
-    const reasoned = prev >= 0 && /\/\/.*:\s*\S.*\(§C\d+(?:\.\d+)*\)/.test(ctx.commentLines[prev]);
-    if (depth <= 0 || !popped || !reasoned) hits.push({ line: i + 1 });
-  });
+    const reasoned = prev >= 0 && REASON_LINE.test(ctx.commentLines[prev]);
+    if (open <= 0 || lastPop <= line || !reasoned) hits.push({ line });
+  }
   return hits;
+}
+
+const ANALYSIS_SUPPRESSION = new RegExp([
+  `^${BLANK}*#${BLANK}*pragma${BLANK}+(?:(?:clang|GCC)${BLANK}+)?system_header\\b`,
+  `^${BLANK}*#${BLANK}*pragma${BLANK}+(?:clang|GCC)${BLANK}+diagnostic${BLANK}+(?:ignored|warning)\\b`,
+  String.raw`\b(?:_Pragma|__pragma|__clang_analyzer__)\b`,
+].join("|"), "gm");
+const ATTRIBUTE_TOKEN = /(::)|([[\]()])|([A-Za-z_]\w*)|[^\s\w[\]()]/g;
+const NEXT_OPEN_BRACKET = /\s*\[/y;
+const NEXT_CLOSE = { "]": /\s*\]/y, ")": /\s*\)/y };
+const NEXT_OPEN_PARENS = /\s*\(\s*\(/y;
+
+function follows(text, pattern, index) {
+  pattern.lastIndex = index;
+  return pattern.test(text) ? pattern.lastIndex : -1;
+}
+
+/**
+ * `[[clang::suppress]]` / `__attribute__((suppress))` の `suppress` の位置。属性指定子 `[[ ]]` と
+ * `__attribute__(( ))` の入れ子を括弧のスタックで 1 回だけ数える (空白・改行・ダイグラフ `<:<:` を挟んでも、
+ * logical ビューでは `[[` になる)。`gsl::suppress` は解析器が無視する MSVC 向けの綴りなので数えない。
+ */
+function suppressAttributeOffsets(text) {
+  const offsets = [];
+  const frames = [];
+  let attributes = 0;
+  let previous = "", beforePrevious = "";
+  ATTRIBUTE_TOKEN.lastIndex = 0;
+  for (let token; (token = ATTRIBUTE_TOKEN.exec(text));) {
+    const [whole, , bracket, word] = token;
+    let next = token.index + whole.length;
+    if (bracket === "[") {
+      const end = follows(text, NEXT_OPEN_BRACKET, next);
+      frames.push(end < 0 ? "[" : "[[");
+      if (end >= 0) { attributes++; next = end; }
+    } else if (bracket === "(") {
+      frames.push("(");
+    } else if (bracket === "]" || bracket === ")") {
+      const open = bracket === "]" ? "[" : "(";
+      const top = frames.at(-1);
+      if (top === open) frames.pop();
+      else if (top === open + open) {
+        frames.pop();
+        attributes--;
+        next = Math.max(next, follows(text, NEXT_CLOSE[bracket], next));
+      }
+    } else if (word && /^__attribute(?:__)?$/.test(word)) {
+      const end = follows(text, NEXT_OPEN_PARENS, next);
+      if (end >= 0) { frames.push("(("); attributes++; next = end; }
+    } else if (word && attributes > 0 && /^(?:__)?suppress(?:__)?$/.test(word) && !(previous === "::" && beforePrevious === "gsl")) {
+      offsets.push(token.index);
+    }
+    beforePrevious = previous;
+    previous = whole;
+    ATTRIBUTE_TOKEN.lastIndex = next;
+  }
+  return offsets;
+}
+
+/**
+ * §C9.4: clang / GCC の警告・解析の抑制は理由があっても使わない。`#pragma clang|GCC diagnostic ignored|warning`、
+ * `#pragma system_header` (clang / GCC 付きを含む)、`_Pragma` / `__pragma` (中身はマクロ展開されるので読めない)、
+ * `[[clang::suppress]]` / `__attribute__((suppress))`、`__clang_analyzer__` を報告する。Praesidium の
+ * `native.analysis-suppression` と同じく論理行で読む (行継続・コメント・ダイグラフを挟んでも見つける)。
+ */
+export function checkAnalysisSuppression(ctx) {
+  const hits = [];
+  for (const m of ctx.logical.matchAll(ANALYSIS_SUPPRESSION)) hits.push({ line: ctx.lineAt(directiveOffset(m)) });
+  for (const offset of suppressAttributeOffsets(ctx.logical)) hits.push({ line: ctx.lineAt(offset) });
+  return hits;
+}
+
+// §C2.1 の禁止 API の呼び出しの終わり。`(atoi)(s)` / `((atoi))(s)` も呼び出し (括弧は関数形式マクロを止めるだけ)。
+// `)` の並びは名前 1 つにしか続かないので、照合は線形 (Revisor rules.mjs の CALL と同じ)。
+export const CALL = String.raw`\s*(?:\)\s*)*\(`;
+// `::` の前に書けるのは名前空間ではなくキーワード (`return ::atoi(s)`) と std (Revisor rules.mjs の NOT_A_NAMESPACE と同じ)。
+const NOT_A_NAMESPACE = "std|return|co_return|co_yield|co_await|throw|else|do|case|new|delete|sizeof|and|or|not|xor|bitand|bitor|compl|and_eq|or_eq|xor_eq|not_eq|__extension__|__real__|__imag__|__real|__imag";
+/** 名前 (`|` 区切り) の呼び出し。メンバ (`.x(` / `->x(`) と std 以外の名前空間 (`my::x(`) は別の関数なので除く。 */
+export const callOf = (names) =>
+  new RegExp(String.raw`(?<!(?:\.|->|\b(?!(?:${NOT_A_NAMESPACE})\b)[A-Za-z_]\w*\s*::)\s*)\b(?:${names})` + CALL);
+
+// banned.h の形の防御 (`#define atoi(...) ...` / `#undef atoi`) は使用ではない (Revisor rules.mjs の BAN_DIRECTIVE と同じ)。
+const BAN_DIRECTIVE = new RegExp(`^${BLANK}*#${BLANK}*(?:define|undef)${BLANK}+$`);
+const BAN_DIRECTIVE_WINDOW = 64;
+
+/** §C2.1: 一致した名前が `#define` / `#undef` の対象 (banned.h の防御) ではない。 */
+export function notBanDirective(m, ctx) {
+  const text = ctx.logical;
+  const from = Math.max(0, m.index - BAN_DIRECTIVE_WINDOW);
+  const window = text.slice(from, m.index);
+  const lineBreak = Math.max(window.lastIndexOf("\n"), window.lastIndexOf("\r"));
+  if (lineBreak < 0 && from > 0) return true;
+  return !BAN_DIRECTIVE.test(window.slice(lineBreak + 1));
 }
 
 /** §C1.7: モジュールのインターフェース単位ファイルそのもの。 */
