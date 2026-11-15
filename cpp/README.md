@@ -186,5 +186,5 @@ node --test cpp/LudiarsCxxBaseline.test.mjs
 18 では `(19+)` の check が unknown と出るのは想定どおり (版を下げて運用しない)。
 
 リポでの検査は Revisor 登録テスト `cpp-format` / `cpp-tidy` (§C3.4) が、merge-base からの変更範囲
-だけに掛ける (§C9.6)。整形は `git clang-format --diff <merge-base>` の出力で、clang-tidy は
-clang-tidy-diff で変更行に限って判定する。
+だけに掛ける (§C9.6)。整形は `git clang-format --diff -q <merge-base>` の出力で (`-q` が無いと整形済みでも
+1 行の報告が出る)、clang-tidy は clang-tidy-diff で変更行に限って判定する。

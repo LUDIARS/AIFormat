@@ -722,7 +722,8 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
   - リポ側で上書きできるのは末尾のキーと CheckOptions の追記だけ。third_party には `DisableFormat: true` を置く。
   - clang-format と clang-tidy は **LLVM 19 に固定** する。正本の check と option は、LLVM 19 の `clang-tidy --verify-config` が
     `No config errors detected.` だけを出すものに限る。LLVM 20 で入る名前と option は、版を上げる PR で入れる。
-  - 整形の検査は `git clang-format --diff <merge-base>` で行い、終了コードではなく出力の有無で判定する。clang-tidy は clang-tidy-diff で変更行に限定する。
+  - 整形の検査は `git clang-format --diff -q <merge-base>` で行い、終了コードではなく出力の有無で判定する。
+    `-q` が無いと、整形済みでも「clang-format did not modify any files」などの 1 行が出て、出力が空にならない。clang-tidy は clang-tidy-diff で変更行に限定する。
   - 有効にする check は正本に名前で列挙する (`clang-analyzer-optin.taint.*` と `clang-analyzer-cplusplus.*` を含む)。グループのワイルドカードは、除外する check の一覧を付けた場合だけ許す。
   - 根拠: Ergo と Ludellus-Native にはこれらの設定ファイルが無い。`modernize-use-constraints` (17 以上)、`bugprone-return-const-ref-from-parameter` と optin.taint の TaintedAlloc (19 以上) を使うため。
   - 担保: [gate — `cpp-format`、`cpp-tidy`]
@@ -749,8 +750,9 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
     (exit は常に 0。所見は PostToolUse の追加コンテキストで返し、error の所見も gate で fail するのでその場で直させる)。
     (a) セッションとリポの組ごとに最初の 1 回だけ要点を表示する / (b) 編集したファイル 1 本に `Revisor/src/praesidium/rules.mjs` の `sourceFindings` を適用する
     (rules.mjs が読むのは同じディレクトリの `languages.mjs`・`native-lexer.mjs`・`javascript-evaluation.mjs` だけ) / (c) 規則表を追加行に適用する。
-    rules.mjs (と languages.mjs) を解決できないときに「Praesidium tripwire 未実行」と 1 行出す注記は未実装 (「未実装の担保」6)。
-    今の hook は、Revisor・AIFormat の clone が無い・読めない検査器を黙って外す。
+    Revisor・AIFormat の clone はあるのに検査器を読み込めないとき (古い clone など) は、セッションごとに 1 回「Praesidium tripwire 未実行」
+    「AIFormat の規則表 未実行」と出す。clone が無い環境では何も出さずにその検査器を外すので、そこでは Praesidium の preflight (gate) と
+    `cpp-conventions` スキルのローカル実行の手順が担保する。
   - (2) gate: `cpp-build-policy` が merge-base の diff に規則表を適用し、warn 以上を fail にする。
   - 規則表は C/C++ を Praesidium と同じ字句処理 (Revisor `native-lexer.mjs` の同期コピー) で読む。C と C++ のどちらにもなるファイル (ヘッダ・`.C`・`.M`) では、
     C にも当てはまる規則 (§C1.8・§C2.1・§C9.4) を C17・C23・C++ の全部の読み方で照合し、それ以外の C++ の規則は C++ の読み方だけで照合する。
@@ -942,9 +944,6 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
 5. `praesidium-config-sync` CTest (§C2.10) — 変更 TU の `praesidium.json` の `standard` / `includes` / `defines` を Ninja preset の
    compile_commands.json と照合する (§C2.10 の `defines` の例外を含む)。それまでは Praesidium の fail-closed (未登録の変更 TU と、見えるユニットの無い変更ヘッダ) と
    レビューが担保する。
-6. hook の「Praesidium tripwire 未実行」の注記 (§C9.5 (1)) — Castra の `cpp-convention-check.mjs` が Revisor の `rules.mjs` / `languages.mjs` を
-   読めないときに 1 行出す。今は黙って外すので、clone の無い環境では Praesidium の字句規則が hook で動かないことが見えない。
-   それまでは Praesidium の preflight (gate) と、`cpp-conventions` スキルのローカル実行の手順が担保する。
 
 ## 採らなかった論点
 
