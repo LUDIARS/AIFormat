@@ -26,8 +26,11 @@ clang-format と clang-tidy は **LLVM 19** に固定する。`.clang-tidy` で 
 
 ## baseline の使い方 (`LudiarsCxxBaseline.cmake`)
 
-各リポは同期コピーを `cmake/LudiarsCxxBaseline.cmake` に置き、トップの `CMakeLists.txt` で include する
-(§C4.2)。詳しい説明はファイル先頭のコメントにある。
+各リポは同期コピーを `cmake/LudiarsCxxBaseline.cmake` に置き、トップの `CMakeLists.txt` で `project()` の直後、
+`add_subdirectory` と target の定義より前に include する (§C4.2)。詳しい説明はファイル先頭のコメントにある。
+`LUDIARS_CXX_HARDENING=ON` の hardening (§C2.8 / §C2.9) は、`ludiars_cxx_usage` (INTERFACE) と、baseline を include した
+ディレクトリ以下 (`add_compile_definitions` / `add_compile_options`) に付く。include より前に追加したサブディレクトリと作った target には
+(usage をリンクしていなければ) 付かないか一部しか付かず、同じ実行ファイルに付いた TU と付いていない TU が混ざる (§C4.10)。
 
 ```cmake
 cmake_minimum_required(VERSION 3.24)                 # §C3.6
@@ -78,7 +81,7 @@ clang / gcc の `ludiars_cxx_warnings` は、Praesidium の警告パスが有効
   `LORICA_TARGETS` に対象の全 target、`LORICA_PROFILE` に `extended` を渡す。
 - Lorica が対応するのは Windows (MSVC 互換) と Linux (GCC / Clang) で、`EXTENDED` は Linux の GCC 12+ / Clang 18+ (x86-64 / AArch64) と
   MSVC 19.44+ (x64) だけ。それ以外 (Apple clang、Android NDK など) では configure が失敗するので、それらの release preset では ON にしない。
-- `LUDIARS_CXX_HARDENING` と同じ preset では使わない (未初期化の自動変数を baseline は `-ftrivial-auto-var-init=pattern`、Lorica は `=zero` にする)。
+- `EXTENDED` は `LUDIARS_CXX_HARDENING` と同じ preset では使わない (未初期化の自動変数を baseline は `-ftrivial-auto-var-init=pattern`、`EXTENDED` は `=zero` にする。Lorica の基本のプロファイルは初期化を変えない)。
 - `lorica_deprecate_unsafe_apis(<target>)` は、その target の非推奨をすべてエラーにするので、準拠 target にだけ付ける (§C4.3)。
 - 付けるものと限界は Lorica の `README.md` と `spec/feature/security-contracts.md` (SPEC-LR-EXTENDED / SPEC-LR-UNSAFE-API) を正とする。
 
@@ -112,7 +115,12 @@ clang / gcc の `ludiars_cxx_warnings` は、Praesidium の警告パスが有効
 §C2.6 の境界層は規則表ではなく CMake の target で宣言する (`ludiars_cxx_enable_strict_warnings` を付けた target)。
 
 抑制注釈 (`NOLINT` / `NOLINTNEXTLINE` / `NOLINTBEGIN`・`NOLINTEND`) と MSVC の `#pragma warning(push)` / `(pop)` の範囲は、ファイルごとに 1 回の走査で
-求める (行数に比例する時間。finding ごとに前後の行を読み直さないので、PostToolUse フックの 3 秒に収まる)。
+求める。注釈の取り出し (閉じの `)` を前へ 1 回だけ探す) と理由の形式の検査も後戻りしないので、どれも入力の長さに比例する時間で済む
+(閉じない `NOLINT(` が並ぶ 2 MiB の行、空白や `:` が続く理由の行で 0.1〜0.3 秒。テストは 1.5 秒以内を確かめる)。
+C と C++ の 3 つの読み方で読むヘッダも、2 MiB で 1 秒前後に収まる (字句処理が 1 回 0.2〜0.3 秒。C++ の規則は C++ の読み方でだけ照合し、正規表現の規則は
+1 つの規則の finding が上限 (200 件) を超えた読み方はそれ以上の一致を読まない)。
+括弧の対応を読む規則 (§C1.1 のテンプレート、§C2.6 の関数形式キャスト、§C8.3 の初期化子など) は、閉じない括弧が大量に並ぶ入力では長さの 2 乗の時間になりうる。
+このため hook (Castra の `cpp-convention-check`) は規則表を時間予算付きの worker で回し、予算を超えたらそう注記する。
 
 ## Revisor からの同期
 
@@ -120,10 +128,15 @@ clang / gcc の `ludiars_cxx_warnings` は、Praesidium の警告パスが有効
 
 | コピー | 同期元 | 使い道 |
 |---|---|---|
-| `rules/lib/native-lexer.mjs` | `Revisor/src/praesidium/native-lexer.mjs` | C/C++ のコメントとリテラルの空白化 (raw 文字列・桁区切り・header-name・行継続・ダイグラフを clang と同じ境界で読む)。`mask.mjs` に残すのは CMake・シェーダと、コメントを残すモード (NOLINT の検査用) だけ |
+| `rules/lib/native-lexer.mjs` | `Revisor/src/praesidium/native-lexer.mjs` | C/C++ のコメントとリテラルの空白化 (raw 文字列・桁区切り・header-name・行継続・ダイグラフを clang と同じ境界で読む)。規則表が読むビュー (コード・論理行・NOLINT を読むコメント入りのビュー) は `native-mask.mjs` がこの出力から作る。自前の字句処理を持つ `mask.mjs` が読むのは CMake とシェーダだけ |
 | `rules/lib/languages.mjs` | `Revisor/src/praesidium/languages.mjs` | C/C++ の拡張子表 (`.c++` `.h++` `.tcc` `.ccm` `.cxxm` `.c++m` `.m` なども含む)。`paths.mjs` の分類はこの表から作る |
 
-- 1 行目に `// synced-from Revisor/src/praesidium/<ファイル名>@<commit>` を書き、それ以外は書き換えない。直したいときは Revisor へ PR を出す。
+- 1 行目に `// synced-from: LUDIARS/Revisor src/praesidium/<ファイル名> @ <commit>` (例: `// synced-from: LUDIARS/Revisor src/praesidium/languages.mjs @ b2c86e9`) を書き、
+  それ以外は書き換えない。この綴りは `cpp-rules.test.mjs` が検査する。直したいときは Revisor へ PR を出す。
+- C と C++ のどちらにもなるファイル (ヘッダ・`.C`・`.M`) は、Praesidium と同じく C17・C23・C++ の読み方で読む。全部の読み方で照合するのは
+  C にも当てはまる規則 (`files` が `PATHS.native`: §C1.8・§C2.1・§C9.4) だけで、ほかの C++ の規則は C++ の読み方だけで照合する
+  (`lib/engine.mjs` の `contextsFor`)。C の読み方は C++ の raw 文字列の中身をコードとして読むので、ヘッダの raw 文字列に書いた
+  禁止 API の呼び出しや抑制 pragma は報告される (Praesidium の字句規則と同じ。RULE_CODE_CPP §C9.5)。
 - Revisor 側が変わったらコピーし直し、`node --test cpp/rules/cpp-rules.test.mjs` を回す。各リポへは下の手順 5 で `lib/` ごと届く。
 
 ## 各リポへの同期

@@ -276,7 +276,7 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
   - (4) diagnostics は保持されないので、Praesidium と同じパス (警告パス・展開パス・解析パス。RV-PRAESIDIUM-03) をローカルで回して再現する。
     `--analyze` だけでは driver が `-w` を足すので警告は 1 つも出ない。
   - 根拠: `Revisor/spec/feature/praesidium.md` の RV-PRAESIDIUM-01 / 03。
-  - 担保: [memory — `common/REVIEW_VULNERABILITY.md` の必須項目と ludiars-review の出力欄。gate (未実装) — `check-rule-ids` の対応漏れ検査 (§C9.1)。実装されるまでは memory だけ]
+  - 担保: [memory — `common/REVIEW_VULNERABILITY.md` の必須項目と ludiars-review の出力欄 (`latest.json` の `praesidium`。Castra の C++ harness の PR で実装)。gate (未実装) — `check-rule-ids` の対応漏れ検査 (§C9.1)。実装されるまでは memory だけ]
   - 関係: RULE_CODE「運用」(規約が表、レビューが裏) の C++ 版
 - **§C2.12 シェーダと C++ の型共有 — 必須**:
   - (1) 複数のシェーダが共有する GPU struct は `shaders/include/<name>.glsl` の 1 箇所に定義し、`#include` (glslc `-I`) で使う。シェーダ間の手書きコピーは禁止。
@@ -412,9 +412,11 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
   - 担保: [hook + gate — 規則表の `CXX_STANDARD [0-9]+` と target の `cxx_std_*`。gate — CMake configure での検査 (`ludiars_cxx_check_targets`)、下位ライブラリでは `verify` / `verify-cxx23` の両 preset]
   - 関係: RULE_TECH_STACK の補完
 - **§C4.2 共通設定を 2 つの baseline target に集める — 必須**: 各リポは `cpp/LudiarsCxxBaseline.cmake` の同期コピーを include し、次の 2 つをリンクする。
-  - (a) `ludiars_cxx_usage`: 全 target が **PUBLIC** でリンクする。consumer にも必要な使用要件だけを持つ (標準、MSVC の `/utf-8 /Zc:__cplusplus`、§C7.4 の fp フラグ)。
+  - (a) `ludiars_cxx_usage`: 全 target が **PUBLIC** でリンクする。consumer にも必要な使用要件だけを持つ (標準、MSVC の `/utf-8 /Zc:__cplusplus`、§C7.4 の fp フラグ、
+    `LUDIARS_CXX_HARDENING=ON` のときの §C2.9 の hardening と §C2.8 の pattern 初期化)。
   - (b) `ludiars_cxx_warnings`: 全 target が **PRIVATE** でリンクする。警告 (§C4.3)、`NOMINMAX`、`WIN32_LEAN_AND_MEAN` を持つ。
   - §C2.9 の hardening は (b) の PRIVATE には置かず、ビルド全体に同じ値で付ける (§C4.10。target ごとに付けると、付いていない TU と同じ inline 関数が混ざる)。
+    baseline は (a) と、baseline を include したディレクトリ以下に付けるので、トップの `CMakeLists.txt` で `project()` の直後、`add_subdirectory` と target の定義より前に include する (`cpp/README.md`)。
   - 禁止: target ごとの `/utf-8`、ソース内の `#define NOMINMAX`、ライブラリでの `CMAKE_MSVC_RUNTIME_LIBRARY` 設定、`_USE_MATH_DEFINES` の配布。
   - `/permissive-` と `/Zc:preprocessor` は opt-in。
   - リンク有無の検査 (`cmake_language(DEFER)`) は自リポの target だけを対象にし、移行期間中は WARNING、移行完了後は FATAL_ERROR にする。
@@ -604,7 +606,7 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
   新しく作らない。依存はコンテキストかコンストラクタで注入する。例外はログの出力先、Release で消えるデバッグツール、プラットフォームの入口 (JavaVM*) に限り、
   直前にコメントマーカー `// <REPO>_ALLOW_GLOBAL: <理由>` (Ergo なら `ERGO_ALLOW_GLOBAL`。マクロではない) を書く。
   - 根拠: `audio_engine.h:32`、`bind.h:33`、`log.cpp` の state()。テスト間で状態が漏れ、DLL ごとに別インスタンスになり、初期化順序も不定になる。手本は `frame_composer.h`。
-  - 担保: [hook — マーカーの無い `static\s+[\w:<>]+\s*&\s*instance\s*\(` の追加を block。gate — 同じ規則表で `cpp-build-policy` が fail]
+  - 担保: [hook — マーカーの無い `static\s+[\w:<>]+\s*&\s*instance\s*\(` の追加を error で知らせる (止めない。§C9.5 (1))。gate — 同じ規則表で `cpp-build-policy` が fail]
   - 関係: RULE_CODE §16 の具体化
 - **§C6.8 永続化の書き込みと読み込み — 必須**:
   - (1) セーブ・設定・成果物の書き込みは共通の `atomic_write_file(path, bytes) -> Expected` だけを使う (RULE_CODE §10 の回転方式のファイル版)。
@@ -704,7 +706,8 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
   - 根拠: HARNESS.md「ハーネスの原則」。
   - 担保: [gate (未実装。「未実装の担保」) — `AIFormat/scripts/check-rule-ids.mjs` を `harness-check.mjs` から呼び、ID の重複、参照する §N の実在、REVIEW との対応、規則表の各規則が実在する §C を指すことを検査する。実装されるまでは memory]
   - 関係: RULE_CODE「運用」の拡張
-- **§C9.2 スキルと委託 — 必須**: Castra の `cpp-conventions` スキル (`Castra/.claude/skills/cpp-conventions/SKILL.md`) に本書の同期コピーを置く。
+- **§C9.2 スキルと委託 — 必須**: Castra の `cpp-conventions` スキル (`Castra/.claude/skills/cpp-conventions/SKILL.md`) は本書への同期ポインタにする
+  (本文は写さず、使うたびに正本の本書を読ませる。スキルに置くのは読む順序・機械で止まるもの・ローカルで回すコマンドだけ)。
   coding-conventions には「C/C++ は cpp-conventions」の 1 行だけを足す。
   リポの CLAUDE.md には上書き内容だけを書く。C++ の委託用 delegation template (`Castra/.claude/delegation-templates/`) には、本書のパス、§C3.4 の gate のコマンド、
   変更前に Praesidium をローカルで回す手順 (警告パス・展開パス・解析パス。フラグは RV-PRAESIDIUM-03 を参照) を固定文で入れる。
@@ -731,20 +734,28 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
   - それ以外の抑制は、理由や push / pop の有無にかかわらず禁止する: `#pragma clang|GCC diagnostic ignored|warning`、`_Pragma` と `__pragma`
     (MSVC の `__pragma(warning(...))` も含む)、`#pragma system_header` (`clang` / `GCC` 付きを含む)、`[[clang::suppress]]` / `__attribute__((suppress))`、
     `__clang_analyzer__` の参照など。規則表は clang / GCC の diagnostic pragma・`_Pragma`・`system_header`・`suppress` 属性・`__clang_analyzer__` を
-    抑制できない error (`suppressible: false`) として報告する。Praesidium の `native.analysis-suppression` は、上の全部を含む一覧をリポ全体で拒否する
-    (一覧は RV-PRAESIDIUM-01 を正とする)。
+    抑制できない error (`suppressible: false`) として報告する。Praesidium の `native.analysis-suppression` は、上の全部に加えて規則表が見ない形
+    (GNU の linemarker、`suppress` と `gsl` の `#define` / `#undef`、`analyzer_noreturn`、`__INCLUDE_LEVEL__` / `__BASE_FILE__` など) を含む一覧をリポ全体で拒否する
+    (規則表はその一部だけを変更行で見る。一覧は RV-PRAESIDIUM-01 を正とする)。
   - Praesidium の禁止 API と analyzer の警告は抑制せずにコードを直す。
   - 根拠: Praesidium は抑制を持たない設計 (RV-PRAESIDIUM-01)。ソース内の pragma は PR が `-w` を渡すのと同じ効果を持つので、2026-11-08 に Praesidium は
     理由の有無にかかわらず拒否すると決め、本規約の許可を MSVC の `#pragma warning` に狭めた (規約どおりの 1 行がそのリポの全 PR を止めていた)。
     Ergo の NOLINT は 0 件なので、今のうちに作法を決められる。
   - 担保: [hook + gate — 規則表 (`check-cpp-suppressions` を統合) が変更行を検査。Praesidium の字句規則 (§C9.5 (b) の hook と Revisor の preflight)]
   - 関係: RULE_CODE §7 の具体化
-- **§C9.5 規則表と PostToolUse フック — 必須**: 正規表現による検査は `cpp/rules/cpp-rules.mjs` 1 つにまとめる。各規則は §C 番号・対象パス・重大度 (warn / error。error は hook で block する) を持ち、2 つの経路が同じ表を使う。
-  - (1) hook: C++ / CMake / シェーダを Edit / Write したとき `Castra/.claude/hooks/cpp-convention-check.mjs` が動く。3 秒以内に終わり、error の規則以外では操作を止めない。
+- **§C9.5 規則表と PostToolUse フック — 必須**: 正規表現による検査は `cpp/rules/cpp-rules.mjs` 1 つにまとめる。各規則は §C 番号・対象パス・重大度 (warn / error) を持ち、2 つの経路が同じ表を使う。
+  止めるのは gate (warn も error も fail にする) と Praesidium の preflight で、hook は操作を止めない ((1))。
+  - (1) hook: C++ / CMake / シェーダを Edit / Write したとき `Castra/.claude/hooks/cpp-convention-check.mjs` が動く。3 秒以内に終わり、操作は止めない
+    (exit は常に 0。所見は PostToolUse の追加コンテキストで返し、error の所見も gate で fail するのでその場で直させる)。
     (a) セッションとリポの組ごとに最初の 1 回だけ要点を表示する / (b) 編集したファイル 1 本に `Revisor/src/praesidium/rules.mjs` の `sourceFindings` を適用する
     (rules.mjs が読むのは同じディレクトリの `languages.mjs`・`native-lexer.mjs`・`javascript-evaluation.mjs` だけ) / (c) 規則表を追加行に適用する。
-    rules.mjs を解決できないときは「Praesidium tripwire 未実行」と 1 行出し、黙って何もしない状態にしない。
+    rules.mjs (と languages.mjs) を解決できないときに「Praesidium tripwire 未実行」と 1 行出す注記は未実装 (「未実装の担保」6)。
+    今の hook は、Revisor・AIFormat の clone が無い・読めない検査器を黙って外す。
   - (2) gate: `cpp-build-policy` が merge-base の diff に規則表を適用し、warn 以上を fail にする。
+  - 規則表は C/C++ を Praesidium と同じ字句処理 (Revisor `native-lexer.mjs` の同期コピー) で読む。C と C++ のどちらにもなるファイル (ヘッダ・`.C`・`.M`) では、
+    C にも当てはまる規則 (§C1.8・§C2.1・§C9.4) を C17・C23・C++ の全部の読み方で照合し、それ以外の C++ の規則は C++ の読み方だけで照合する。
+    このため C++ ヘッダの raw 文字列の中に書いた禁止 API の呼び出しや抑制 pragma も、C の読み方ではコードなので報告される (Praesidium の字句規則と同じ)。
+    ヘッダの raw 文字列に入れるソース片 (シェーダなど) には禁止 API と抑制 pragma を書かないか、raw 文字列を .cpp に置く。
   - clang-tidy はフックに入れない (3 秒に収まらないため)。
   - リポ単位の規則の無効化は、`cpp-rules.json` の `disable` に §C 番号か規則名と理由を書く。`suppressible: false` の規則 (§C1.7、§C1.8 の `load-library`、
     §C2.1、§C2.2、§C6.7、§C9.4) と、それを含む §C 番号は無効にできず、書くと規則表が例外で止まる (§C9.4)。
@@ -831,7 +842,7 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
 | C6.4 | 本文 | 規則表 (ヘルパ外 `.release()`) | cplusplus.NewDelete* (cpp-tidy と Praesidium の解析パス)、規則表 | VU |
 | C6.5 | 本文 | 規則表 (view 型メンバ) | dangling-gsl、dangling-handle、ASan、規則表 | VU |
 | C6.6 | 本文 | 規則表 (Thread-safety 行欠落) | -Wthread-safety、tsan、規則表 | CQ |
-| C6.7 | 本文 | 規則表 (instance() を block) | 規則表 | DS |
+| C6.7 | 本文 | 規則表 (instance() を error で表示) | 規則表 | DS |
 | C6.8 | 本文 | 規則表 (trunc 直書き・remove_all) | 後方互換 fixture、失敗注入 CTest、規則表 | QA |
 | C7.1 | 本文 | — | 確保回数 CTest | CQ |
 | C7.2 | 本文 (対象層の宣言) | 規則表 | 規則表 (ロジック層)、ゴールデン照合 | QA |
@@ -931,6 +942,9 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
 5. `praesidium-config-sync` CTest (§C2.10) — 変更 TU の `praesidium.json` の `standard` / `includes` / `defines` を Ninja preset の
    compile_commands.json と照合する (§C2.10 の `defines` の例外を含む)。それまでは Praesidium の fail-closed (未登録の変更 TU と、見えるユニットの無い変更ヘッダ) と
    レビューが担保する。
+6. hook の「Praesidium tripwire 未実行」の注記 (§C9.5 (1)) — Castra の `cpp-convention-check.mjs` が Revisor の `rules.mjs` / `languages.mjs` を
+   読めないときに 1 行出す。今は黙って外すので、clone の無い環境では Praesidium の字句規則が hook で動かないことが見えない。
+   それまでは Praesidium の preflight (gate) と、`cpp-conventions` スキルのローカル実行の手順が担保する。
 
 ## 採らなかった論点
 
@@ -968,7 +982,7 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
 |----|------|------|
 | **正本** | single source of truth | この `AIFormat/RULE_CODE_CPP.md` |
 | **ツール設定の正本** | 機械が読む設定 | [`cpp/`](./cpp/) (`.clang-format` / `.clang-tidy` / `.editorconfig` / `LudiarsCxxBaseline.cmake` / `rules/cpp-rules.mjs`、使い方は [`cpp/README.md`](./cpp/README.md))。各 C++ リポには版を書いた同期コピーを置く |
-| **スキル** | C++ を書くときに手元へ出す窓口 | Castra の `cpp-conventions` スキル (`.claude/skills/cpp-conventions/SKILL.md`、本書の同期コピー)。`coding-conventions` からは 1 行のポインタだけ |
+| **スキル** | C++ を書くときに手元へ出す窓口 | Castra の `cpp-conventions` スキル (`.claude/skills/cpp-conventions/SKILL.md`、本書への同期ポインタ。本文は写さず正本を読む)。`coding-conventions` からは 1 行のポインタだけ |
 | **harness** | 機械的トリップワイヤ + 要点注入 | 規則表 (`cpp/rules/cpp-rules.mjs`) + C++ / CMake / シェーダ編集時の PostToolUse フック (Castra の `.claude/hooks/cpp-convention-check.mjs`)。同じ規則表を Revisor の `cpp-build-policy` gate も使う |
 
 - レビュー時は、担保マトリクスの REVIEW 列 (CQ / VU / VL / DS / QA) が指す各レビューの C++ 項目で裏取りする

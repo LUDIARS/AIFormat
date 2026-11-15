@@ -4,13 +4,14 @@
  *
  * - 2 つの経路が同じ表を使う。
  *   - hook: Castra/.claude/hooks/cpp-convention-check.mjs が、編集したファイル 1 本の追加行に
- *     `scanSource` (と `scanChangeset([その 1 本])`) を掛ける。severity "error" は block、"warn" は表示のみ。
+ *     `scanSource` を掛け、finding を重大度付きでモデルに返す (操作は止めない。止めるのは gate)。
  *   - gate: Revisor 登録テスト `cpp-build-policy` が CLI (`node cpp-rules.mjs <repo> --base <ref>`) で
  *     merge-base からの diff に掛け、warn 以上を fail にする (exit 1)。
  * - 正規表現による構文 tripwire であり、パーサではない。コメントと文字列リテラルは空白化してから照合する
  *   (改行は残すので行番号は変わらない)。C/C++ の字句処理と拡張子の表は Revisor の同期コピー
  *   (`lib/native-lexer.mjs` / `lib/languages.mjs`) で、Praesidium と同じ境界で読む。C と C++ のどちらにも
- *   なるファイル (ヘッダ・.C・.M) は C17 / C23 / C++ の各読み方で照合し、finding を合算する。
+ *   なるファイル (ヘッダ・.C・.M) は、C にも当てはまる規則 (files が PATHS.native) を C17 / C23 / C++ の各読み方で
+ *   照合して finding を合算し、C++ の規則は C++ の読み方だけで照合する (lib/engine.mjs の contextsFor)。
  * - finding は §C 番号・規則名・ファイル・行番号・重大度・固定文言だけを持ち、ソース抜粋を入れない
  *   (Revisor の leakage と同じ方針)。
  * - このファイルの責務は「規則表」と、表を束ねた公開 API。字句処理・設定・実行・git は `lib/` に分ける。
@@ -46,8 +47,9 @@ export { CONFIG_FILE };
  *
  * - id: RULE_CODE_CPP の §C 番号 (安定参照 ID)。
  * - name: 規則名。抑制の check 名は `cpp-rules-<id>` (§C 単位)。
- * - severity: "error" = hook で block・gate で fail / "warn" = hook は表示のみ・gate で fail。
+ * - severity: "error" / "warn"。gate はどちらも fail にし、hook はどちらも表示だけ (止めない)。
  * - files: 適用対象のパス。exclude: 除外するパス。skip(file, config): 設定による除外。
+ *   files が PATHS.native の規則 (C にも当てはまる規則) だけを C/C++ の全部の読み方で照合し、それ以外は C++ の読み方で照合する。
  * - when(config): 設定が揃ったときだけ有効にする (ロジック層・ロガーの宣言など)。
  * - scope: "added-lines" = finding の行 (anyOf のどれか) が追加行のときだけ報告 /
  *          "file" = 変更されたファイル全体で判定 / "changeset" = 変更集合全体で判定 (check(cs))。
@@ -95,7 +97,8 @@ export const rules = [
     id: "C1.6", name: "ptr-size-param", severity: "warn",
     title: "(ptr, size) 引数",
     files: PATHS.publicHeader, scope: "added-lines",
-    pattern: /(?<=[(,]\s*)const\s+(?:unsigned\s+)?[\w:]+\s*\*\s*[A-Za-z_]\w*\s*,\s*(?:std::)?size_t\b/,
+    // `(` / `,` は後読みにせず読み進める (後読みの \s* は長い空白の各位置で読み戻すので 2 乗になる)。報告は at の行。
+    pattern: /[(,]\s*(?<at>const\s+(?:unsigned\s+)?[\w:]+\s*\*\s*[A-Za-z_]\w*\s*,\s*(?:std::)?size_t\b)/,
     message: "読み取り専用の (const T* data, size_t size) 引数は std::span<const T> / std::string_view で受ける",
     why: "ポインタと長さを別々に渡すと、長さの取り違えが範囲外読み出しになる",
   },
@@ -103,7 +106,7 @@ export const rules = [
     id: "C1.6", name: "vector-param", severity: "warn",
     title: "const std::vector& 引数",
     files: PATHS.publicHeader, scope: "added-lines",
-    pattern: /(?<=[(,]\s*)const\s+std::vector\s*</,
+    pattern: /[(,]\s*(?<at>const\s+std::vector\s*<)/,
     message: "所有しない読み取り専用の引数は const std::vector<T>& ではなく std::span<const T> で受ける",
     why: "vector を要求すると呼び出し側に確保とコピーを強い、配列や部分範囲を渡せない",
   },

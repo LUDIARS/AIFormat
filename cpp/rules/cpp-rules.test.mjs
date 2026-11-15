@@ -105,14 +105,18 @@ const CASES = {
     ],
   },
   "ptr-size-param": {
-    pos: [[PUB, "bool parse(const uint8_t* data, size_t size);\nvoid send(int id,\n          const void* bytes, std::size_t n);\n", [1, 3]]],
+    pos: [
+      [PUB, "bool parse(const uint8_t* data, size_t size);\nvoid send(int id,\n          const void* bytes, std::size_t n);\n", [1, 3]],
+      // `(` / `,` の後のコメントと、1 つの宣言に並んだ 2 組 (先の一致が後の組の `,` を食わない)
+      [PUB, "void copy(/* in */ const char* a, size_t n,\n          const char* b, size_t m);\n", [1, 2]],
+    ],
     neg: [
       ["src/world/proto/datagram.h", "bool parse(const uint8_t* data, size_t size);\n"],
       [PUB, "bool parse(std::span<const std::byte> data);\n// bool parse(const uint8_t* data, size_t size);\n"],
     ],
   },
   "vector-param": {
-    pos: [[PUB, "void set(const std::vector<int>& values);\n", [1]]],
+    pos: [[PUB, "void set(const std::vector<int>& values);\nvoid zip(const std::vector<int>& a,\n         const std::vector<int>& b);\n", [1, 2, 3]]],
     neg: [
       [PUB, "const std::vector<int>& values() const;\n"],
       ["src/net/x.h", "void set(const std::vector<int>& values);\n"],
@@ -495,6 +499,8 @@ const CASES = {
       ["src/log/log.cpp", "#ifdef _MSC_VER\n#pragma warning(suppress: 4996)\n#pragma warning(push, 0)\n#pragma warning(4: 4996)\n#pragma warning(pop)\n#endif\n", [2, 3, 4]],
       ["src/log/log.cpp", "#if defined(_MSC_VER)\n#else\n#pragma warning(push)\n#pragma warning(pop)\n#endif\n", [3, 4]],
       ["src/log/log.cpp", "#if _MSC_VER < 1900 || defined(_MSC_VER)\n#pragma warning(push)\n#endif\n%:pragma warning(pop)\n", [2, 4]],
+      // 行継続の後ろの行だけを追加しても、指令 (# の行) として報告する
+      ["src/log/log.cpp", "#pragma warning \\\n  (disable: 4996)\n", [1], { addedLines: [2] }],
     ],
     neg: [[
       "src/log/log.cpp",
@@ -534,6 +540,9 @@ const CASES = {
       // 行継続・コメント・ダイグラフを挟んだ書き方 (プリプロセッサの論理行で読む)。名前の途中の行継続
       // (`diag\` + 改行 + `nostic`) は Praesidium の native.identifier-splice が拒否する
       [SRC, "#pragma clang \\\ndiagnostic ignored \"-Wall\"\n#/**/pragma GCC diagnostic ignored \"-Wx\"\n%:pragma GCC diagnostic ignored \"-Wx\"\n/* a\n b */ #pragma GCC diagnostic ignored \"-Wx\"\n", [1, 3, 4, 6]],
+      // 行継続の後ろの行 (どの警告を消すか) だけを追加しても、指令 (# の行) として報告する
+      [SRC, "#pragma clang \\\ndiagnostic ignored \"-Wall\"\n", [1], { addedLines: [2] }],
+      [SRC, "#pragma GCC diagnostic ignored \\\n  \"-Wformat\"\nint x;\n", [1], { addedLines: [2] }],
     ],
     neg: [[SRC, [
       "// #pragma clang diagnostic ignored \"-Wall\"",
@@ -733,6 +742,52 @@ test("字句処理: リテラルの中の NOLINT では抑制できない (CR LF
     "const char* s = \"a\\\r\n// NOLINT(cpp-rules-C2.6): x (§C2.6)\"; int v = (int)f;\r\n"), [2]);
 });
 
+test("ヘッダの C++ の規則は C++ の読み方だけで照合する (C の読み方の raw 文字列と桁区切りで誤検出しない)", () => {
+  const rulesAt = (file, source) => scanSource(file, source).map((f) => `${f.rule}@${f.line}`);
+  // C の読み方では raw 文字列の中身がコードになるが、キャストは C++ の規則なので C++ のコードとして読む
+  const glsl = [
+    "#pragma once",
+    "inline constexpr const char* kFrag = R\"glsl(",
+    "#version 450",
+    "void main() {",
+    "  int idx = int(uv.x * 4.0);",
+    "  float f = (float)idx / 4.0;",
+    "}",
+    ")glsl\";",
+    "",
+  ].join("\n");
+  assert.deepEqual(rulesAt("include/ergo/render/blit_shader.hpp", glsl), []);
+  // C17 の読み方では 1'024 の ' から行末までが文字リテラルになり、行末の NOLINT が隠れる
+  for (const check of ["cpp-rules-C2.5", "cppcoreguidelines-pro-type-reinterpret-cast"]) {
+    const wire = `inline const std::byte* at(const void* b) { return reinterpret_cast<const std::byte*>(b) + 1'024; } // NOLINT(${check}): wire offset (§C2.5)\n`;
+    for (const file of ["src/wire.hpp", "src/wire.h", "include/ergo/net/wire.h", "src/wire.cpp"]) assert.deepEqual(rulesAt(file, wire), [], `${file} ${check}`);
+  }
+  // C にも当てはまる規則 (禁止 API・抑制) は Praesidium と同じく全部の読み方で照合する: C の読み方では raw 文字列の中身もコード
+  const snippet = [
+    "#pragma once",
+    "inline constexpr const char* kSnippet = R\"cpp(",
+    "  int v = atoi(s);",
+    "  auto* p = reinterpret_cast<int*>(q);",
+    "  #pragma GCC diagnostic ignored \"-Wall\"",
+    "  using namespace std;",
+    ")cpp\";",
+    "",
+  ].join("\n");
+  assert.deepEqual(rulesAt("src/snippet.hpp", snippet), ["banned-api@3", "analysis-suppression@5"]);
+  assert.deepEqual(rulesAt("src/snippet.cpp", snippet), []);
+});
+
+test("finding の上限: 読み方ごとに打ち切っても、行の小さいほうから 200 件と finding-limit は変わらない", () => {
+  // 2 行目の atoi は C の読み方でだけ見える (C++ では raw 文字列の中)。4 行目からの 300 行はどの読み方でも見える
+  const source = "const char* s = R\"(\";\nint n = atoi(s);\n// )\"\n" + "int m = atoi(s);\n".repeat(300);
+  const findings = scanSource("src/net/x.h", source);
+  const expected = [2];
+  for (let line = 4; expected.length < 200; line++) expected.push(line);
+  assert.deepEqual(findings.slice(0, 200).map((f) => f.line), expected);
+  assert.ok(findings.slice(0, 200).every((f) => f.rule === "banned-api"));
+  assert.deepEqual(findings.slice(200).map((f) => `${f.rule}@${f.line}`), ["finding-limit@202"]);
+});
+
 test("拡張子の表は Revisor の languages.mjs と同じ (同期コピー)", () => {
   const cases = {
     "src/a.c": "cpp", "src/a.C": "cpp", "src/a.c++": "cpp", "src/a.cc": "cpp", "src/a.CPP": "cpp",
@@ -800,6 +855,32 @@ test("抑制注釈と #pragma の範囲は線形に求める (2 MiB の入力が
     scanSource(SRC, source);
     const ms = Number(process.hrtime.bigint() - started) / 1e6;
     assert.ok(ms < 3000, `${name}: ${ms.toFixed(0)} ms`);
+  }
+});
+
+test("長い注釈の行と 3 つの読み方で読むヘッダも、2 MiB で 1.5 秒に収まる", () => {
+  const MiB = 1024 * 1024;
+  const fill = (unit) => unit.repeat(Math.ceil(2 * MiB / unit.length)).slice(0, 2 * MiB);
+  const finding = "\nint* p = reinterpret_cast<int*>(q);\n";
+  const inputs = [
+    // 閉じない NOLINT( / NOLINTNEXTLINE( が並ぶ 1 行 (注釈の取り出しが後戻りしない)。抑制できる finding は抑制されない
+    ["nolintParen", SRC, fill("NOLINT(") + finding, ["nolint-form@1", "reinterpret-cast@2"]],
+    ["nolintNextLineParen", SRC, fill("NOLINTNEXTLINE(") + finding, ["nolint-form@1", "reinterpret-cast@2"]],
+    // 理由の後ろに空白が続く NOLINT と、`:` が続く MSVC の理由の行
+    ["nolintReasonBlanks", SRC, `int a = (int)x; // NOLINT(cpp-rules-C2.6): a${" ".repeat(2 * MiB)}\n`, ["nolint-form@1"]],
+    ["pragmaReasonColons", SRC, `#if defined(_MSC_VER)\n#pragma warning(push)\n//${fill(": ")}\n#pragma warning(disable: 4774)\n#pragma warning(pop)\n#endif\n`, ["pragma-disable@4"]],
+    // ' を含むヘッダは C17・C23・C++ の 3 つの読み方で読む
+    ["headerQuote", "src/a.h", fill("x'a' atoi(s);\n"), null],
+    // 公開ヘッダの大きなブロックコメント (§C1.6 の照合が空白の並びで 2 乗にならない)
+    ["publicHeaderComment", PUB, `char c = 'a';\n/*${"x".repeat(2 * MiB)}*/\nbool parse(const uint8_t* data, size_t size);\n`, ["ptr-size-param@3"]],
+  ];
+  for (const [name, file, source, expected] of inputs) {
+    const started = process.hrtime.bigint();
+    const findings = scanSource(file, source);
+    const ms = Number(process.hrtime.bigint() - started) / 1e6;
+    assert.ok(ms < 1500, `${name}: ${ms.toFixed(0)} ms`);
+    if (expected) assert.deepEqual(findings.map((f) => `${f.rule}@${f.line}`), expected, name);
+    else assert.equal(findings.at(-1).rule, "finding-limit", name);
   }
 });
 

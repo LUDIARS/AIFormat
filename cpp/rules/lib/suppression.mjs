@@ -20,10 +20,39 @@ export function checkListMatches(list, check) {
   return compileList(list).some((re) => re.test(check));
 }
 
+const NOLINT = "NOLINT";
+const NOLINT_KINDS = ["NEXTLINE", "BEGIN", "END"];
+const WORD_CHAR = /\w/;
+
+/**
+ * 1 行の抑制注釈 `NOLINT[NEXTLINE|BEGIN|END](<list>)` を前から順に返す ({ kind, list })。
+ * 正規表現 `/\bNOLINT(NEXTLINE|BEGIN|END)?\(([^)]*)\)/g` と同じものを取り出すが、後戻りしない:
+ * 閉じの `)` は indexOf で前へ 1 回だけ探し、無ければその行に注釈はもう無い (後の `NOLINT(` も閉じられない)。
+ * どの文字も一定回数しか読まないので行の長さに比例する (`NOLINT(` が閉じずに並ぶ長い行でも 2 乗にならない)。
+ */
+export function* nolintMarks(text) {
+  let from = 0;
+  for (;;) {
+    const at = text.indexOf(NOLINT, from);
+    if (at < 0) return;
+    from = at + 1;
+    if (at > 0 && WORD_CHAR.test(text[at - 1])) continue; // \b
+    let open = at + NOLINT.length;
+    const kind = NOLINT_KINDS.find((k) => text.startsWith(`${k}(`, open)) ?? "";
+    open += kind.length;
+    if (text[open] !== "(") continue;
+    const close = text.indexOf(")", open + 1);
+    if (close < 0) return;
+    yield { kind, list: text.slice(open + 1, close) };
+    from = close + 1;
+  }
+}
+
 /**
  * 抑制注釈の索引。コンテキスト (ファイルと読み方) ごとに 1 回だけ全行を走査して作り、問い合わせは
  * 同じ行と前の行の注釈と、NOLINTBEGIN / END の二分探索で答える。finding ごとに前の全行を
- * 読み直さないので、行数と finding 数の積にならない (PostToolUse フックの 3 秒に収める)。
+ * 読み直さず、注釈の取り出しも後戻りしない (nolintMarks) ので、全体が入力の長さに比例する
+ * (PostToolUse フックの 3 秒に収める)。
  */
 function indexOf(ctx) {
   if (ctx.suppressionIndex) return ctx.suppressionIndex;
@@ -32,13 +61,13 @@ function indexOf(ctx) {
   const sameLine = new Map(); // 行 (0 始まり) → NOLINT(...) のリスト
   const nextLine = new Map(); // 行 (0 始まり) → NOLINTNEXTLINE(...) のリスト
   lines.forEach((text, i) => {
-    if (!text.includes("NOLINT")) return;
-    for (const m of text.matchAll(/\bNOLINT(NEXTLINE|BEGIN|END)?\(([^)]*)\)/g)) {
-      if (m[1] === "BEGIN" || m[1] === "END") marks.push({ line: i, begin: m[1] === "BEGIN", list: m[2], text });
+    if (!text.includes(NOLINT)) return;
+    for (const { kind, list } of nolintMarks(text)) {
+      if (kind === "BEGIN" || kind === "END") marks.push({ line: i, begin: kind === "BEGIN", list, text });
       else {
-        const map = m[1] === "NEXTLINE" ? nextLine : sameLine;
+        const map = kind === "NEXTLINE" ? nextLine : sameLine;
         if (!map.has(i)) map.set(i, []);
-        map.get(i).push(m[2]);
+        map.get(i).push(list);
       }
     }
   });

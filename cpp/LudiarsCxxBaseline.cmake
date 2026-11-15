@@ -362,7 +362,7 @@ endif()
 #   上書きしない (構成ごとの値が食い違うと LNK2038 になるため)。代わりに ABI を変えない
 #   _MSVC_STL_HARDENING (VS 2022 17.14 以降で有効、それ以前は無視される) を付ける。
 #   配布ビルドの FORTIFY・stack protector・CET などは Lorica の lorica_harden_target(<target> EXTENDED) が付ける。
-#   Lorica は未初期化の自動変数を =zero にするので、LUDIARS_CXX_HARDENING (=pattern) と同じ preset では使わない。
+#   Lorica の EXTENDED は未初期化の自動変数を =zero にするので、LUDIARS_CXX_HARDENING (=pattern) と同じ preset では使わない。
 # ===========================================================================
 set(_LUDIARS_CXX_TRIVIAL_INIT_FLAG "")
 if(_LUDIARS_CXX_FAMILY STREQUAL "gcc" OR _LUDIARS_CXX_FAMILY STREQUAL "clang")

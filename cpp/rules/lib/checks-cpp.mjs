@@ -230,16 +230,42 @@ export function checkPositionalConfig(ctx) {
   return hits;
 }
 
+// 理由の後ろに付ける §C 番号 `(§Cn)` / `(§Cn.m)`。
+const SECTION_MARK = /\(§C\d+(?:\.\d+)*\)/g;
+// 正規表現の `.` が読まない文字 (\n は行に無い)。
+const LINE_TERMINATOR = /[\r\u2028\u2029]/;
+const isBlank = (ch) => /\s/.test(ch);
+
+/**
+ * NOLINT の check 名の後ろ (`rest`) が `: <理由> (§Cn)` の形か。理由は空でなく `(§` で始まらない。
+ * `/^:\s*(\S.*?)\s*\(§C\d+(?:\.\d+)*\)/` の一致 (と理由が `(§` で始まらないこと) と同じ判定を、後戻りせずに行う:
+ * 理由の先頭の次の文字から後で最初の `(§Cn)` だけを見ればよい (後ろの `(§Cn)` を選んでも理由が伸びるだけで、
+ * 判定は変わらない)。空白が長く続く行でも行の長さに比例する。
+ */
+export function hasNoteReason(rest) {
+  if (rest[0] !== ":") return false;
+  let start = 1;
+  while (start < rest.length && isBlank(rest[start])) start++;
+  if (start >= rest.length) return false;
+  SECTION_MARK.lastIndex = start + 1;
+  const mark = SECTION_MARK.exec(rest);
+  if (!mark) return false;
+  let end = mark.index;
+  while (end > start + 1 && isBlank(rest[end - 1])) end--;
+  if (LINE_TERMINATOR.test(rest.slice(start + 1, end))) return false;
+  return !rest.startsWith("(§", start);
+}
+
 /** §C9.4: NOLINT の形式 `NOLINT(<check>): <理由> (§Cn)`。 */
 export function checkNolintForm(ctx) {
   const hits = [];
   ctx.commentLines.forEach((text, i) => {
+    if (!text.includes("NOLINT")) return;
     for (const m of text.matchAll(/\bNOLINT(NEXTLINE|BEGIN|END)?\b(\([^)]*\))?([^\n]*)/g)) {
       const checks = (m[2] ?? "").slice(1, -1).trim();
       if (!checks) { hits.push({ line: i + 1 }); continue; }
       if (m[1] === "END") continue;
-      const reason = /^:\s*(\S.*?)\s*\(§C\d+(?:\.\d+)*\)/.exec(m[3]);
-      if (!reason || reason[1].startsWith("(§")) hits.push({ line: i + 1 });
+      if (!hasNoteReason(m[3])) hits.push({ line: i + 1 });
     }
   });
   return hits;
@@ -249,13 +275,48 @@ export function checkNolintForm(ctx) {
 const BLANK = "[ \\t\\f\\v]";
 const DIRECTIVE_LINE = new RegExp(`^${BLANK}*#${BLANK}*([A-Za-z_]\\w*)([^\\r\\n]*)`, "gm");
 const MSVC_WARNING_PRAGMA = /^\s*warning\s*\(([^)]*)\)?/;
-const REASON_LINE = /\/\/.*:\s*\S.*\(§C\d+(?:\.\d+)*\)/;
+
+/**
+ * MSVC の disable の直前に書く理由の行 `// <check>: <理由> (§Cn)` か。`//` の後の最初の `:` の後に空白でない文字があり、
+ * その後ろに `(§Cn)` がある。`.` の読まない文字 (\r など) で区切った区間ごとに前から 1 回だけ読む (行の長さに比例する)。
+ * `/\/\/.*:\s*\S.*\(§C\d+(?:\.\d+)*\)/` と同じ判定だが、`:` の後の空白が \r などをまたぐ形は理由と認めない (報告する側に倒す)。
+ */
+export function isReasonLine(text) {
+  for (const segment of text.split(LINE_TERMINATOR)) {
+    const slashes = segment.indexOf("//");
+    if (slashes < 0) continue;
+    const colon = segment.indexOf(":", slashes + 2);
+    if (colon < 0) continue;
+    let first = colon + 1;
+    while (first < segment.length && isBlank(segment[first])) first++;
+    if (first >= segment.length) continue;
+    SECTION_MARK.lastIndex = first + 1;
+    if (SECTION_MARK.test(segment)) return true;
+  }
+  return false;
+}
 
 /** 指令の `#` の位置 (論理行の先頭に畳まれた空白やコメントを飛ばす)。 */
 function directiveOffset(m) {
   let offset = 0;
   while (/[ \t\f\v]/.test(m[0][offset] ?? "")) offset++;
   return m.index + offset;
+}
+
+const REST_OF_LINE = /[^\r\n]*/y;
+
+/**
+ * 指令の finding。行は `#` の行で、anyOf は指令の論理行が占める原文の行すべて (logical では行継続と
+ * コメント内の改行が空白なので、論理行は次の改行まで。一致の終わりから行末までを 1 回だけ読む)。
+ * 行継続の後ろの行だけを追加した変更も報告する。
+ */
+function directiveHit(ctx, m) {
+  REST_OF_LINE.lastIndex = m.index + m[0].length;
+  REST_OF_LINE.test(ctx.logical);
+  const line = ctx.lineAt(directiveOffset(m));
+  const first = ctx.lineAt(m.index);
+  const last = ctx.lineAt(REST_OF_LINE.lastIndex);
+  return first === last ? { line } : { line, anyOf: range(first, last) };
 }
 
 const MSVC_DEFINED = String.raw`(?:defined\s*\(\s*_MSC_VER\s*\)|defined\s+_MSC_VER)`;
@@ -311,20 +372,21 @@ export function checkPragmaDisable(ctx) {
     } else if (name === "pragma") {
       const w = MSVC_WARNING_PRAGMA.exec(rest);
       if (!w) continue;
-      const line = ctx.lineAt(directiveOffset(m));
+      const hit = directiveHit(ctx, m);
+      const { line } = hit;
       const spec = w[1];
-      if (!msvc) hits.push({ line });
+      if (!msvc) hits.push(hit);
       if (/^\s*push\s*$/.test(spec)) depth++;
       else if (/^\s*pop\s*$/.test(spec)) { depth--; lastPop = line; }
-      else if (/^\s*push\s*,|\bsuppress\b|(?:^|;)\s*[1-4]\s*:/.test(spec)) hits.push({ line });
-      if (/\bdisable\b/.test(spec)) disables.push({ line, depth });
+      else if (/^\s*push\s*,|\bsuppress\b|(?:^|;)\s*[1-4]\s*:/.test(spec)) hits.push(hit);
+      if (/\bdisable\b/.test(spec)) disables.push({ hit, depth });
     }
   }
-  for (const { line, depth: open } of disables) {
-    let prev = line - 2;
+  for (const { hit, depth: open } of disables) {
+    let prev = hit.line - 2;
     while (prev >= 0 && !ctx.commentLines[prev].trim()) prev--;
-    const reasoned = prev >= 0 && REASON_LINE.test(ctx.commentLines[prev]);
-    if (open <= 0 || lastPop <= line || !reasoned) hits.push({ line });
+    const reasoned = prev >= 0 && isReasonLine(ctx.commentLines[prev]);
+    if (open <= 0 || lastPop <= hit.line || !reasoned) hits.push(hit);
   }
   return hits;
 }
@@ -351,6 +413,7 @@ function follows(text, pattern, index) {
  */
 function suppressAttributeOffsets(text) {
   const offsets = [];
+  if (!text.includes("suppress")) return offsets; // 数えるのは suppress の名前だけ (無ければ括弧を数えない)
   const frames = [];
   let attributes = 0;
   let previous = "", beforePrevious = "";
@@ -394,7 +457,10 @@ function suppressAttributeOffsets(text) {
  */
 export function checkAnalysisSuppression(ctx) {
   const hits = [];
-  for (const m of ctx.logical.matchAll(ANALYSIS_SUPPRESSION)) hits.push({ line: ctx.lineAt(directiveOffset(m)) });
+  for (const m of ctx.logical.matchAll(ANALYSIS_SUPPRESSION)) {
+    // 指令 (`#pragma ...`) は論理行の全部の行で数える。`_Pragma` などの名前はその行だけ。
+    hits.push(m[0].includes("#") ? directiveHit(ctx, m) : { line: ctx.lineAt(m.index) });
+  }
   for (const offset of suppressAttributeOffsets(ctx.logical)) hits.push({ line: ctx.lineAt(offset) });
   return hits;
 }

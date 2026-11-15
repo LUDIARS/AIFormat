@@ -31,9 +31,9 @@ export const CXX_READINGS = Object.freeze([
 
 /**
  * ファイルを読む字句規則の一覧。`.c` / `.m` は C、ヘッダと `.C` / `.M` (どちらの言語にもなる) は
- * C と C++ の全部、それ以外は C++ (Revisor の nativeLexing と同じ)。規則は各読み方で掛け、
- * finding を合算する (どの読み方でもコードを隠せないようにするため)。
- * C17 と C23 が違うのは `'` の読み方だけなので、`'` の無いソースは C17 だけで読む。
+ * C と C++ の全部、それ以外は C++ (Revisor の nativeLexing と同じ)。C にも当てはまる規則は各読み方で掛けて
+ * finding を合算し (どの読み方でもコードを隠せないようにするため)、C++ の規則は C++ の読み方だけで掛ける
+ * (engine.mjs の contextsFor)。C17 と C23 が違うのは `'` の読み方だけなので、`'` の無いソースは C17 だけで読む。
  */
 export function nativeReadings(file, source) {
   const row = nativeLanguage(file);
