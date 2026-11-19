@@ -22,8 +22,9 @@ const SKIP = !which("cmake") || COMPILERS.length === 0;
 /**
  * demo_core (準拠 target) / demo_legacy (準拠前) / host_app (demo_core を使うホスト。warnings はリンクしない) /
  * vendor (third_party。baseline の target を何もリンクしない) の 4 つを持つプロジェクト。
+ * `pre` は baseline の include より前に、`extra` は最後に書く。
  */
-function writeProject(dir, extra = "") {
+function writeProject(dir, extra = "", pre = "") {
   mkdirSync(path.join(dir, "third_party"), { recursive: true });
   for (const name of ["core", "legacy", "app", "third_party/vendor"]) {
     writeFileSync(path.join(dir, `${name}.cpp`), "int f() { return 0; }\n");
@@ -32,6 +33,7 @@ function writeProject(dir, extra = "") {
   writeFileSync(path.join(dir, "CMakeLists.txt"), [
     "cmake_minimum_required(VERSION 3.24)",
     "project(demo LANGUAGES C CXX)",
+    pre,
     `include("${BASELINE.replace(/\\/g, "/")}")`,
     "add_subdirectory(third_party)",
     "add_library(demo_core STATIC core.cpp)",
@@ -47,10 +49,10 @@ function writeProject(dir, extra = "") {
 }
 
 /** configure して、ファイル名 (拡張子なし) → コンパイル引数 1 行 の表を返す。失敗なら { error }。 */
-function configure([cc, cxx], options, extra) {
+function configure([cc, cxx], options, extra, pre) {
   const dir = mkdtempSync(path.join(os.tmpdir(), "ludiars-baseline-"));
   try {
-    writeProject(dir, extra);
+    writeProject(dir, extra, pre);
     const result = spawnSync("cmake", [
       "-S", dir, "-B", path.join(dir, "build"), "-G", which("ninja") ? "Ninja" : "Unix Makefiles",
       `-DCMAKE_C_COMPILER=${cc}`, `-DCMAKE_CXX_COMPILER=${cxx}`, "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
@@ -94,6 +96,21 @@ for (const compilers of COMPILERS) {
     const off = configure(compilers, { LUDIARS_CXX_HARDENING: "OFF" });
     assert.ok(off.byName, off.error);
     for (const name of ["core", "legacy", "app", "vendor"]) assert.ok(!off.byName[name].includes("_GLIBCXX_ASSERTIONS"), name);
+  });
+
+  test(`${label}: ディレクトリに hardening のマクロが一部あっても、残りの項目は付く (§C2.9 / §C4.10)`, { skip: SKIP }, () => {
+    // ホストが include より前に _GLIBCXX_ASSERTIONS だけを付けていても、libc++ / MSVC STL のマクロと
+    // pattern 初期化を、usage をリンクしない vendor にも付ける (付いた項目は重ねない)。
+    for (const pre of ["add_compile_definitions(_GLIBCXX_ASSERTIONS)", "add_definitions(-D_GLIBCXX_ASSERTIONS)"]) {
+      const { byName, error } = configure(compilers, { LUDIARS_CXX_HARDENING: "ON" }, "", pre);
+      assert.ok(byName, error);
+      for (const name of ["core", "vendor"]) {
+        for (const flag of ["-D_GLIBCXX_ASSERTIONS", "-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE",
+          "-D_MSVC_STL_HARDENING=1", "-ftrivial-auto-var-init=pattern"]) {
+          assert.equal(byName[name].split(` ${flag} `).length - 1, 1, `${pre}: ${name} に ${flag} が 1 回だけ付く`);
+        }
+      }
+    }
   });
 
   test(`${label}: target ごとの ludiars_cxx_enable_hardening は廃止 (configure で止まる)`, { skip: SKIP }, () => {
