@@ -3,6 +3,7 @@
 import { maskCommentsAndLiterals } from "./mask.mjs";
 import { CXX_READINGS, nativeReadings, nativeViews } from "./native-mask.mjs";
 import { GLOBAL_EXCLUDE, languageOf, normalizePath, PATHS } from "./paths.mjs";
+import { AMBIGUOUS_SOURCE, mayHoldObjectiveC } from "./native-objc-probe.mjs";
 import { isSuppressed } from "./suppression.mjs";
 import { lineIndex } from "./syntax.mjs";
 
@@ -99,6 +100,8 @@ export function scanSource(rules, file, source, { addedLines = null, config }) {
   if (GLOBAL_EXCLUDE.test(rel)) return [];
   const lang = languageOf(rel);
   if (!lang) return [];
+  // C 系の印の無い小文字の `.m` は MATLAB などのファイルとして、Praesidium と同じく読まない。
+  if (AMBIGUOUS_SOURCE.test(rel) && !mayHoldObjectiveC(Buffer.from(String(source), "utf8"))) return [];
   const added = toAddedSet(addedLines);
   if (added && added.size === 0) return [];
   const contexts = scanContexts(rel, String(source), lang, config);
@@ -153,6 +156,7 @@ export function scanChangeset(rules, changes, { config, repoFiles = [] }) {
     if (GLOBAL_EXCLUDE.test(file)) continue;
     const lang = languageOf(file);
     if (!lang) continue;
+    if (AMBIGUOUS_SOURCE.test(file) && !mayHoldObjectiveC(Buffer.from(String(c.source), "utf8"))) continue;
     const addedLines = toAddedSet(c.addedLines);
     if (addedLines && addedLines.size === 0) continue;
     normalized.push({ file, source: String(c.source), lang, addedLines });

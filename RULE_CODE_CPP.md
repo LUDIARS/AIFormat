@@ -428,6 +428,7 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
     (Revisor `src/praesidium/native-baseline.mjs` の `NATIVE_WARNINGS`) をすべて含め、§C1.5・§C2.7 の分を足す。
     clang では `-Wthread-safety` (§C6.6)・`-Wdangling-gsl` (§C6.5)・`-Wreorder-init-list` (§C8.3)。
   - MSVC: `/W4 /w44265 /w44774 /w44062` (§C1.5・§C2.1、enum の switch 網羅)。clang-cl は MSVC 列に従い、clang 専用の警告も `/clang:` で付ける。
+    clang-cl は `/w44774` / `/we4774` を黙って無視するので、§C2.1 の書式文字列の検査 (`-Wformat=2` とそのエラー化) も `/clang:` で付ける。
   - §C1.3・§C1.5・§C2.1・§C2.13・§C5.1・§C6.5・§C6.6・§C8.3 が挙げる個別のエラー化 (`-Werror=return-type` 等、MSVC の `/we4715` 等) を含め、
     **エラー化は `LUDIARS_CXX_WARNINGS_AS_ERRORS` に従う**。verify preset では ON、add_subdirectory で取り込むホストの既定では OFF。
     (個別の `-Werror=` を常時有効にすると、新しいコンパイラを使うホストのビルドを壊すため。ゲートは verify preset で担保する。)
@@ -758,6 +759,9 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
     C にも当てはまる規則 (§C1.8・§C2.1・§C9.4) を C17・C23・C++ の全部の読み方で照合し、それ以外の C++ の規則は C++ の読み方だけで照合する。
     このため C++ ヘッダの raw 文字列の中に書いた禁止 API の呼び出しや抑制 pragma も、C の読み方ではコードなので報告される (Praesidium の字句規則と同じ)。
     ヘッダの raw 文字列に入れるソース片 (シェーダなど) には禁止 API と抑制 pragma を書かないか、raw 文字列を .cpp に置く。
+    C の読み方では raw 文字列の中の `// NOLINT` も注釈として §C9.4 の形式の検査を受け、桁区切り (`1'000`) や raw 文字列の閉じの後ろに書いた NOLINT は
+    見えない。ヘッダの NOLINT は桁区切りと raw 文字列の無い行に書く。
+    小文字の `.m` は、Praesidium と同じく C 系の印 (指令・`{`・`@import` など) が無ければ MATLAB などのファイルとして読まない。
   - clang-tidy はフックに入れない (3 秒に収まらないため)。
   - リポ単位の規則の無効化は、`cpp-rules.json` の `disable` に §C 番号か規則名と理由を書く。`suppressible: false` の規則 (§C1.7、§C1.8 の `load-library`、
     §C2.1、§C2.2、§C6.7、§C9.4) と、それを含む §C 番号は無効にできず、書くと規則表が例外で止まる (§C9.4)。

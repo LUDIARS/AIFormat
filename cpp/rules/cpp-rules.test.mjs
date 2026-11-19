@@ -166,7 +166,7 @@ const CASES = {
       ["src/net/x.c++", "int n = atoi(s);\n", [1]],
       ["include/ergo/net/x.h++", "inline int f(const char* s) { return atoi(s); }\n", [1]],
       ["include/ergo/net/x.tcc", "int n = atoi(s);\n", [1]],
-      ["src/platform/x.m", "int n = atoi(s);\n", [1]],
+      ["src/platform/x.m", "int f(const char* s) { return atoi(s); }\n", [1]],
     ],
     neg: [
       [SRC, "int a = rng.rand();\nint b = my::atoi(x);\nint c = ptr->rand();\nconst char* s = \"atoi(\";\n// atoi(a, b);\nint n = snprintf(buf, sizeof(buf), \"%d\", v);\noperand(x);\n"],
@@ -806,9 +806,37 @@ test("拡張子の表は Revisor の languages.mjs と同じ (同期コピー)",
     const first = readFileSync(path.join(HERE, "lib", synced), "utf8").split("\n")[0];
     assert.match(first, new RegExp(`^// synced-from: LUDIARS/Revisor src/praesidium/${synced.replace(".", "\\.")} @ [0-9a-f]{7,}$`), synced);
   }
+  const probe = readFileSync(path.join(HERE, "lib", "native-objc-probe.mjs"), "utf8").split("\n")[0];
+  assert.match(probe, /^\/\/ synced-from: LUDIARS\/Revisor src\/praesidium\/files\.mjs @ [0-9a-f]{7,}$/);
+});
+
+test("C 系の印の無い小文字の .m (MATLAB など) は Praesidium と同じく読まず、Objective-C の .m は読む", () => {
+  const rulesAt = (file, source) => scanSource(file, source).map((f) => `${f.rule}@${f.line}`);
+  assert.deepEqual(rulesAt("tools/noise.m", "% plot noise\nx = rand(3);\nplot(x);\n"), []);
+  assert.deepEqual(rulesAt("src/app.m", "#import <stdlib.h>\nint r(void) { return rand(); }\n"), ["banned-api@2"]);
+  // 本体の { だけでも Objective-C として読む。大文字の .M は中身によらず読む
+  assert.deepEqual(rulesAt("src/app.m", "int r(void)\n{ return rand(); }\n"), ["banned-api@2"]);
+  assert.deepEqual(rulesAt("src/app.M", "x = rand(3);\n"), ["banned-api@1"]);
+  // 変更集合でも同じ
+  assert.deepEqual(scanChangeset([{ file: "tools/noise.m", source: "x = rand(3);\n", addedLines: null }]).map((f) => f.rule), []);
 });
 
 // ---- 抑制・範囲・漏洩 ----
+
+test("NOLINT の check 名の glob は * の並びでも長さに比例する時間で照合する", () => {
+  // 正規表現 (* → .*) にすると * が 1 つ増えるごとに約 6 倍遅くなり、16 個では止まらなかった
+  const line = `auto p = reinterpret_cast<int*>(q); // NOLINT(${"*".repeat(16)}x): r (§C2.5)\n`;
+  const started = process.hrtime.bigint();
+  const findings = scanSource("src/a.cpp", line).map((f) => f.rule);
+  const ms = Number(process.hrtime.bigint() - started) / 1e6;
+  assert.ok(ms < 1000, `${ms.toFixed(0)} ms`);
+  assert.ok(findings.includes("reinterpret-cast"), "x で終わらない check 名には一致しない");
+  // glob の意味は変えない: * は任意の長さ、ほかの文字はそのまま
+  const suppressed = (list) => !scanSource("src/a.cpp", `auto p = reinterpret_cast<int*>(q); // NOLINT(${list}): r (§C2.5)\n`)
+    .some((f) => f.rule === "reinterpret-cast");
+  assert.ok(suppressed("cpp-rules-C2.5") && suppressed("cpp-rules-*") && suppressed("*-C2.5") && suppressed("cpp-*-C2*"));
+  assert.ok(!suppressed("cpp-rules-C2.6") && !suppressed("cpp-rules-C2") && !suppressed("cpp.rules-C2.5"));
+});
 
 test("NOLINT(cpp-rules-<id>) で抑制でき、NEXTLINE と BEGIN/END も効く", () => {
   const src = [
@@ -858,7 +886,7 @@ test("抑制注釈と #pragma の範囲は線形に求める (2 MiB の入力が
   }
 });
 
-test("長い注釈の行と 3 つの読み方で読むヘッダも、2 MiB で 1.5 秒に収まる", () => {
+test("長い注釈の行と 3 つの読み方で読むヘッダも、2 MiB が線形の時間 (6 秒未満) に収まる", () => {
   const MiB = 1024 * 1024;
   const fill = (unit) => unit.repeat(Math.ceil(2 * MiB / unit.length)).slice(0, 2 * MiB);
   const finding = "\nint* p = reinterpret_cast<int*>(q);\n";
@@ -878,7 +906,9 @@ test("長い注釈の行と 3 つの読み方で読むヘッダも、2 MiB で 1
     const started = process.hrtime.bigint();
     const findings = scanSource(file, source);
     const ms = Number(process.hrtime.bigint() - started) / 1e6;
-    assert.ok(ms < 1500, `${name}: ${ms.toFixed(0)} ms`);
+    // 単独では 0.1〜1.4 秒。並行するテスト (baseline の cmake とコンパイラ) で遅れても落ちない上限にする。
+    // 2 乗の時間なら 512 KiB でも 10 秒を超える (この PR より前の実装) ので、上限は線形と 2 乗を分ける。
+    assert.ok(ms < 6000, `${name}: ${ms.toFixed(0)} ms`);
     if (expected) assert.deepEqual(findings.map((f) => `${f.rule}@${f.line}`), expected, name);
     else assert.equal(findings.at(-1).rule, "finding-limit", name);
   }

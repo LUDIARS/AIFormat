@@ -7,6 +7,7 @@ import {
 /**
  * C/C++ のパス分類。拡張子の表は Revisor の同期コピー (languages.mjs) を正とし、ここでは書き写さない
  * (`.c++` `.h++` `.tcc` `.ccm` `.cxxm` `.c++m` `.m` `.M` `.C` なども Praesidium と同じに分類される)。
+ * 小文字の `.m` は中身も見る: C 系の印が無いもの (MATLAB など) は engine が読まない (native-objc-probe.mjs)。
  * `.inc` / `.def` の断片は他言語とも共有する拡張子なので、Praesidium と同じく単独では検査しない。
  * 規則の `files` / `exclude` は `test(path)` を持てばよい (RegExp と同じ使い方)。
  */

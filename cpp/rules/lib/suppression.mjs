@@ -1,23 +1,48 @@
 /** RULE_CODE_CPP §C9.4 の形式の抑制注釈 (NOLINT / NOLINTNEXTLINE / NOLINTBEGIN・END) の解決。 */
 
-import { escapeRegExp } from "./syntax.mjs";
-
 const compiledLists = new Map();
 
-/** `a, b*` の check 名リスト (glob) を正規表現の配列にする。同じ文字列は 1 回だけ組み立てる。 */
+/** `a, b*` の check 名リスト (glob) を項目の配列にする。同じ文字列は 1 回だけ分ける。 */
 function compileList(list) {
   let compiled = compiledLists.get(list);
   if (!compiled) {
-    compiled = list.split(",").map((s) => s.trim()).filter(Boolean)
-      .map((item) => new RegExp(`^${item.split("*").map(escapeRegExp).join(".*")}$`));
+    compiled = list.split(",").map((s) => s.trim()).filter(Boolean);
     if (compiledLists.size > 4096) compiledLists.clear();
     compiledLists.set(list, compiled);
   }
   return compiled;
 }
 
+/**
+ * `*` だけを特別な文字とする glob (`*` は任意の長さの文字列) が文字列全体に一致するか。
+ * 正規表現 (`*` → `.*`) にすると `*` の並びで後戻りが指数的に増える (`**********x` で数十秒)。
+ * ここでは最後に読んだ `*` にだけ戻るので、glob と文字列の長さの積に比例する時間で済む。
+ */
+function globMatches(glob, text) {
+  let g = 0;
+  let t = 0;
+  let star = -1; // 最後に読んだ `*` の位置
+  let resume = 0; // その `*` が飲み込んだ文字列の終わり
+  while (t < text.length) {
+    if (g < glob.length && glob[g] === "*") {
+      star = g++;
+      resume = t;
+    } else if (g < glob.length && glob[g] === text[t]) {
+      g++;
+      t++;
+    } else if (star >= 0) {
+      g = star + 1;
+      t = ++resume;
+    } else {
+      return false;
+    }
+  }
+  while (g < glob.length && glob[g] === "*") g++;
+  return g === glob.length;
+}
+
 export function checkListMatches(list, check) {
-  return compileList(list).some((re) => re.test(check));
+  return compileList(list).some((item) => globMatches(item, check));
 }
 
 const NOLINT = "NOLINT";

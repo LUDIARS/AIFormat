@@ -279,7 +279,8 @@ target_compile_definitions(ludiars_cxx_warnings INTERFACE
 #   指示付き初期化子順 (§C8.3)     clang: -Wreorder-init-list     C7560 (常にエラー)
 #
 #   clang-cl は MSVC 列に従い、clang 専用の行 (-Wthread-safety / -Wdangling-gsl /
-#   -Wreorder-init-list とそのエラー化) も /clang: で付ける。
+#   -Wreorder-init-list とそのエラー化) も /clang: で付ける。書式文字列は /w44774 / /we4774 を
+#   clang-cl が無視するので、clang / gcc 列の -Wformat=2 とそのエラー化を /clang: で付ける。
 #   Praesidium の警告パス (Revisor src/praesidium/native-baseline.mjs の NATIVE_WARNINGS) が有効にする
 #   警告はすべて含める。Revisor 側の一覧が変わったらここも合わせる。
 #   -Wpedantic は入れない (##__VA_ARGS__ で大量に出る。RULE_CODE_CPP「採らなかった論点」)。
@@ -292,9 +293,10 @@ if(_LUDIARS_CXX_FAMILY STREQUAL "msvc" OR _LUDIARS_CXX_FAMILY STREQUAL "clang-cl
     "$<$<COMPILE_LANGUAGE:${_LUDIARS_ALL_LANGS}>:/w44062>")
   if(_LUDIARS_CXX_FAMILY STREQUAL "clang-cl")
     # §C6.6 / §C6.5 / §C8.3 clang-cl でも clang 専用の検査を抜かさない。
-    # Praesidium の警告パスの -Wvla -Wnull-dereference も (/W4 は -Wall -Wextra に当たる)
+    # Praesidium の警告パスの -Wformat=2 -Wvla -Wnull-dereference も (/W4 は -Wall -Wextra に当たる)。
+    # clang-cl は /w44774 / /we4774 を黙って無視するので、§C2.1 の書式文字列は clang の名前で付ける
     target_compile_options(ludiars_cxx_warnings INTERFACE
-      "$<${_LUDIARS_CLANG_ALL}:/clang:-Wthread-safety;/clang:-Wvla;/clang:-Wnull-dereference>"
+      "$<${_LUDIARS_CLANG_ALL}:/clang:-Wthread-safety;/clang:-Wformat=2;/clang:-Wvla;/clang:-Wnull-dereference>"
       "$<${_LUDIARS_CLANG_CXX}:/clang:-Wdangling-gsl;/clang:-Wreorder-init-list>")
   endif()
 else()
@@ -326,8 +328,9 @@ if(LUDIARS_CXX_WARNINGS_AS_ERRORS)
       "$<$<AND:$<COMPILE_LANGUAGE:${_LUDIARS_ALL_LANGS}>,$<BOOL:$<TARGET_PROPERTY:LUDIARS_CXX_WARNINGS_COMPLIANT>>>:/WX;/we4996>")
     if(_LUDIARS_CXX_FAMILY STREQUAL "clang-cl")
       target_compile_options(ludiars_cxx_warnings INTERFACE
-        # §C6.6 スレッド安全性 / §C6.5 ダングリング / §C8.3 指示付き初期化子の順序
-        "$<${_LUDIARS_CLANG_ALL}:/clang:-Werror=thread-safety>"
+        # §C6.6 スレッド安全性 / §C2.1 書式文字列 (clang-cl は /we4774 を無視する) /
+        # §C6.5 ダングリング / §C8.3 指示付き初期化子の順序
+        "$<${_LUDIARS_CLANG_ALL}:/clang:-Werror=thread-safety;/clang:-Werror=format-nonliteral;/clang:-Werror=format-security>"
         "$<${_LUDIARS_CLANG_CXX}:/clang:-Werror=dangling-gsl;/clang:-Werror=reorder-init-list>")
     endif()
   else()
