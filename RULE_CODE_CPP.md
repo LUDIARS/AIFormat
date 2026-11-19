@@ -302,7 +302,7 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
   - (4) レイアウト照合に使う `spirv-cross` も、GPU target が ON のときは必須とし、見つからなければ glslc と同じく `FATAL_ERROR` にする。
   - (5) .spv は CMake の生成物として target に依存を張り、実行時の探索パスはビルド設定から渡す。
   - 根拠: `Ergo/shaders/particle_update.comp:14-36` と `particle_spawn.comp` が `struct Particle` を二重定義。C++ 側 `include/ergo/gpu_particle/particle_state.h:9-42` はオフセットがコメントの表で、検査は sizeof==64 だけ。`Ergo/CMakeLists.txt:395-416` と `Ludellus-Native/native/CMakeLists.txt:1086-1087` は glslc が無いと「SPIR-V bake skipped」の STATUS で済ませる。`sdf_mesh_bvh.h:29,39`・`avatar_sdf_pose.h:41` も sizeof だけ。
-  - 担保: [gate — CTest `shader_layout_<module>` が `spirv-cross --reflect` の SSBO/UBO メンバオフセットと C++ の offsetof を照合。CMake で GPU target ON かつ glslc / spirv-cross 無しを FATAL。hook + gate — 規則表が、`shaders/*` の GPU 型を変更したのに対応ヘッダとレイアウトテストが変更集合に無い場合を検出]
+  - 担保: [gate — CTest `shader_layout_<module>` が `spirv-cross --reflect` の SSBO/UBO メンバオフセットと C++ の offsetof を照合。CMake で GPU target ON かつ glslc / spirv-cross 無しを FATAL。gate — 規則表が、`shaders/*` の GPU 型を変更したのに対応ヘッダとレイアウトテストが変更集合に無い場合を検出 (変更集合の規則なので hook は見ない。§C9.5 (1))]
   - 関係: RULE_CODE §6 (DRY)・§7.1、§C2.4 の具体化
 - **§C2.13 UTF-8 の文字列とパスの境界 — 必須**:
   - (1) 内部の `std::string` は UTF-8。`std::string` と `std::filesystem::path` の相互変換は、リポに 1 つの
@@ -360,7 +360,7 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
   満たす例 `static_assert(C<T>)` と満たさない例 `static_assert(!C<T>)` を書く。満たさない例には境界になる型 (bool、char、ポインタ、参照、該当しない struct) を
   1 つ以上含める。新規・変更した constexpr 関数は、境界値 (0、型の最小値、型の最大値) と通常値を 1 つずつ static_assert で確かめる。
   - 根拠: Ergo/tests の static_assert は 0 件。`include/ergo/math/concepts.h:21` の `Arithmetic` は bool を受け付けてしまう。
-  - 担保: [hook + gate — static_assert のコンパイル、規則表が concepts.h の変更に対応テストが diff に無い場合を検出]
+  - 担保: [gate — static_assert のコンパイル、規則表が concepts.h の変更に対応テストが diff に無い場合を検出 (変更集合の規則なので hook は見ない。§C9.5 (1))]
   - 関係: RULE_TEST §2 (公開 API の契約テスト) の具体化
 - **§C3.6 ヘッダの自己完結性とインスタンス化の検査 — 必須**: 新規・変更した公開ヘッダは `FILE_SET HEADERS` で宣言し、verify preset で
   `VERIFY_INTERFACE_HEADER_SETS ON` と `all_verify_interface_header_sets` をビルドする。このため C++ リポの `cmake_minimum_required` は **3.24 以上** とする。
@@ -385,7 +385,7 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
   - コーパスは libFuzzer が無い環境でも全件を流す CTest `fuzz_corpus_<target>` (LABELS `sanitize`) として常に回す。例外の送出もクラッシュと同じく失敗とする (§C5.2)。
   - クラッシュした入力はコーパスに追加する。libFuzzer による本番実行は clang のホストで任意に行う。
   - 根拠: `Ergo/src/sound/audio_decoder.cpp:81-115` はチャンクサイズを検証していない。fuzz/ ディレクトリは存在しない。
-  - 担保: [hook + gate — CTest、規則表が上記パスの変更にハーネスが無い場合を検出]
+  - 担保: [gate — CTest、規則表が上記パスの変更にハーネスが無い場合を検出 (変更集合の規則なので hook は見ない。§C9.5 (1))]
   - 関係: RULE_TEST §3 の具体化
 - **§C3.9 consumer のリンクテスト — 必須**: ホストに add_subdirectory で取り込まれるライブラリは `tests/consumer/` に最小のホストを置く。
   このホストは公開 target を全部リンクし、公開ヘッダを全部 include した TU をビルドする。`ctest --build-and-test` として登録する。
@@ -733,11 +733,12 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
   - 担保: [gate (未実装。「未実装の担保」) — `AIFormat/scripts/check-rule-ids.mjs` を `harness-check.mjs` から呼び、ID の重複、参照する §N の実在、REVIEW との対応、規則表の各規則が実在する §C を指すことを検査する。実装されるまでは memory]
   - 関係: RULE_CODE「運用」の拡張
 - **§C9.2 スキルと委託 — 必須**: Castra の `cpp-conventions` スキル (`Castra/.claude/skills/cpp-conventions/SKILL.md`) は本書への同期ポインタにする
-  (本文は写さず、使うたびに正本の本書を読ませる。スキルに置くのは読む順序・機械で止まるもの・ローカルで回すコマンドだけ)。
+  (本文は写さず、使うたびに正本の本書を読ませる。スキルに置くのは読む順序・機械で止まるもの・フックが見る範囲・ローカルで回すコマンド・委託 template の場所と、
+  着手前に §C 違反を指摘するなどの挙動の指示だけ)。
   coding-conventions には「C/C++ は cpp-conventions」の 1 行だけを足す。
   リポの CLAUDE.md には上書き内容だけを書く。C++ の委託用 delegation template (`Castra/.claude/delegation-templates/`) には、本書のパス、§C3.4 の gate のコマンド
   (`cpp-format` と `cpp-tidy` は §C9.3 のコマンド、`cpp-build-policy` は規則表の CLI、`ctest` は `verify` と §C4.1 の条件での `verify-cxx23`、`ctest-asan-ubsan`)、
-  変更前に Praesidium をローカルで回す手順 (警告パス・展開パス・解析パス。フラグは RV-PRAESIDIUM-03 を参照) を固定文で入れる。
+  仕上げる前に Praesidium の CLI をローカルで回し、落ちた検査を警告パス・展開パス・解析パスで再現する手順 (フラグは RV-PRAESIDIUM-03 を参照) を固定文で入れる。
   Codex にはフックが効かないので、hook で担保する規則は必ず §C9.5 の規則表を通して `cpp-build-policy` gate にも載せ、hook だけの規則を作らない (例外は §C9.5 (a) の要点表示だけ)。
   `cpp-conventions` スキルは C/C++ のソースとヘッダ (Revisor `src/praesidium/languages.mjs` の拡張子表: `*.c` / `*.cc` / `*.cpp` / `*.h` / `*.hpp` など) と
   `CMakeLists.txt` / `*.cmake` / `CMakePresets.json` / `shaders/*` を編集するときに読み込まれるよう、description にこれらの拡張子とパスを書く。
@@ -784,12 +785,13 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
   - 関係: RULE_CODE §7 の具体化
 - **§C9.5 規則表と PostToolUse フック — 必須**: 正規表現による検査は `cpp/rules/cpp-rules.mjs` 1 つにまとめる。各規則は §C 番号・対象パス・重大度 (warn / error) を持ち、2 つの経路が同じ表を使う。
   止めるのは gate (warn も error も fail にする) と Praesidium の preflight で、hook は操作を止めない ((1))。
-  - (1) hook: C++ / CMake / シェーダを Edit / Write したとき `Castra/.claude/hooks/cpp-convention-check.mjs` が動く。3 秒以内に終わり、操作は止めない
+  - (1) hook: C++ / CMake / シェーダ (と §C3.12 の `augur.contracts.json`) を Edit / Write したとき `Castra/.claude/hooks/cpp-convention-check.mjs` が動く。3 秒以内に終わり、操作は止めない
     (exit は常に 0。所見は PostToolUse の追加コンテキストで返し、error の所見も gate で fail するのでその場で直させる)。
     (a) セッションとリポの組ごとに最初の 1 回だけ要点を表示する / (b) 編集したファイル 1 本に `Revisor/src/praesidium/rules.mjs` の `sourceFindings` を適用する
     (rules.mjs が読むのは同じディレクトリの `languages.mjs`・`native-lexer.mjs`・`javascript-evaluation.mjs` だけ) / (c) 規則表のうち単一ファイルの規則
     (scope が added-lines / file。file の規則は足された行があればファイル全体を見る) を、HEAD から作業ツリーまでに足された行 (未追跡のファイルは全体) に適用する。変更集合の規則 (§C2.12・§C3.5・§C3.8) と、
-    ブランチで先にコミットした行は hook では見ず、(2) の gate (merge-base) に任せる。
+    ブランチで先にコミットした行は hook では見ず、(2) の gate (merge-base) に任せる。git が失敗・時間切れのときと、workspace (Castra の `.claude` を持つディレクトリ) の外の
+    リポ (そのリポの git 設定のコマンドを走らせないよう git を使わない) では、ファイル全体に適用し、既存の行の所見が混じりうると注記する。
     Revisor・AIFormat の clone はあるのに検査器を読み込めないとき (古い clone など) は、セッションごとに 1 回「Praesidium tripwire 未実行」
     「AIFormat の規則表 未実行」と出す。clone が無い環境では何も出さずにその検査器を外すので、そこでは Praesidium の preflight (gate) と
     `cpp-conventions` スキルのローカル実行の手順が担保する。
@@ -820,7 +822,7 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
 
 ## 担保マトリクス
 
-- **記憶** = 本書と cpp-conventions スキル。**規則表** = §C9.5 の `cpp-rules.mjs` を hook と `cpp-build-policy` の両方で適用。「—」は該当なし。
+- **記憶** = 本書と cpp-conventions スキル。**規則表** = §C9.5 の `cpp-rules.mjs` を hook と `cpp-build-policy` の両方で適用 (変更集合の規則 §C2.12・§C3.5・§C3.8 は `cpp-build-policy` だけ。§C9.5 (1))。「—」は該当なし。
 - **REVIEW** 列の略号: CQ = `common/REVIEW_CODE_QUALITY.md` / VU = `common/REVIEW_VULNERABILITY.md` / VL = `local-app/REVIEW_VULNERABILITY_LOCAL.md` /
   DS = `common/REVIEW_DESIGN.md` / QA = `common/REVIEW_QUALITY.md` / H = harness 自体の検査 (REVIEW 行を持たない)。
 - memory だけで担保する規約は §C6.2。`check-rule-ids.mjs` が実装されるまでは §C2.11・§C9.1・§C9.2 も実質 memory だけ (「未実装の担保」)。
@@ -849,16 +851,16 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
 | C2.9 | 本文 | — | debug / sanitizer preset の hardening | VU |
 | C2.10 | 本文 | — | RV-PRAESIDIUM-03 (praesidium-config-sync CTest は未実装) | VU |
 | C2.11 | REVIEW | — | — (check-rule-ids は未実装) | VU |
-| C2.12 | 本文 | 規則表 (shaders 変更でレイアウトテスト欠落) | 規則表 (変更集合)、shader_layout CTest、glslc / spirv-cross 無しで FATAL | CQ |
+| C2.12 | 本文 | — | 規則表 (変更集合)、shader_layout CTest、glslc / spirv-cross 無しで FATAL | CQ |
 | C2.13 | 本文 | 規則表 (u8path・変換 API) | 規則表、deprecated-declarations、cert-err33-c、日本語パス往復 CTest | CQ |
 | C3.1 | 罠一覧 | 規則表 | 規則表 | QA |
 | C3.2 | 本文 | 規則表 (tests の `int main(`) | ergo_add_test、規則表 | QA |
 | C3.3 | 本文 | — | CMake FATAL、`--no-tests=error` | QA |
 | C3.4 | 本文 | — | Revisor 登録テスト 4 件 (+ ctest-asan-ubsan) | QA |
-| C3.5 | 本文 | 規則表 (テスト欠落) | static_assert、規則表 | QA |
+| C3.5 | 本文 | — | static_assert、規則表 (変更集合) | QA |
 | C3.6 | 本文 | — | VERIFY_INTERFACE_HEADER_SETS | QA |
 | C3.7 | 本文 | — | asan-ubsan / tsan preset、Revisor 登録 | QA |
-| C3.8 | 本文 | 規則表 (ハーネス欠落) | fuzz_corpus CTest (例外も失敗) | QA |
+| C3.8 | 本文 | — | fuzz_corpus CTest (例外も失敗)、規則表 (変更集合) | QA |
 | C3.9 | 本文 | — | `ctest --build-and-test`、2 TU の ODR 検査 | QA |
 | C3.10 | 本文 | — | preset でバックエンド明示、LABELS gpu | QA |
 | C3.11 | 本文 | — | bit 一致ゴールデン、SIMD / scalar memcmp | QA |
