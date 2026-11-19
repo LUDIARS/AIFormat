@@ -282,15 +282,16 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
   - (1) `coverage.nativeScope` が `changed` か `repository` か。
   - (2) 解析されなかったものは pass ではない: `coverage.nativeNotAnalyzed` (Objective-C/C++ のユニットとヘッダ) と、
     どのユニットもインスタンス化しないテンプレートの本体 (§C2.3)。
-    host package (`praesidium.host.json` の `-isystem`) の中で終わり、経路の大半が host のコードを通る analyzer の report も、
+    host package (`praesidium.host.json` の `-isystem`) の中で終わり、経路の地点 (path note) のうち host のコードがリポのコード以上ある analyzer の report も、
     記録だけの advisory で、リポのコードの pass ではない (check の `hostReports`、件数は `coverage.nativeHostReports`。preflight の行に advisory として出る。RV-PRAESIDIUM-03)。
-    ライブラリへ短く入るリポ側の欠陥もここに入るので、`hostReports` の `file`・`line`・`checker` から呼び出し側を確かめる。
+    ライブラリの長い経路へ短く呼び込むリポ側の欠陥もここに入るので、`hostReports` の `file`・`line`・`checker` から呼び出し側を確かめる。
     そのユニットの診断パスが読んだリポのファイルに `#line` があると、report の場所が host のヘッダに見せかけられうるので、advisory にせず
     `reason` `host-report-relocatable` で fail にする (§C9.4)。
   - (3) findings 0 件は安全の証明ではない。
-  - (4) 失敗した native の検査は `reason` と、上限付きで秘密を伏せた `output` を持つ (`praesidium.md` 冒頭): `compiler-failed` (コンパイラが 0 以外で終了した、または起動に失敗した)、
-    `compiler-diagnostics` (0 で終了したが警告・エラーを出した)、`host-report-relocatable`、未完了 (status `error`) になる `compiler-unavailable`・
-    `terminated` (止められた。時間切れとは限らない)・`output-limit`。まずそれを読み、足りなければ Praesidium と同じパス (警告パス・展開パス・解析パス。
+  - (4) 失敗した native の検査は `reason` (と、あれば上限付きで秘密を伏せた `output`) を持つ (`praesidium.md` 冒頭): `compiler-failed` (コンパイラが 0 以外で終了した。
+    クラッシュと、コンパイラ不在以外の起動の失敗は同じ reason で未完了 (status `error`))、`compiler-diagnostics` (0 で終了したが警告・エラーを出した)、`host-report-relocatable`、
+    未完了になる `compiler-unavailable`・`terminated` (止められた。時間切れとは限らない)・`output-limit`。展開パスで抑制が見つかった検査と、finding の付いた
+    リポのファイルを読んだために落ちた検査は `reason` を持たず、その finding が原因を示す。まずそれを読み、足りなければ Praesidium と同じパス (警告パス・展開パス・解析パス。
     RV-PRAESIDIUM-03) をローカルで回して再現する。`--analyze` だけでは driver が `-w` を足すので警告は 1 つも出ない。
   - 根拠: `Revisor/spec/feature/praesidium.md` の冒頭 (失敗した検査の `reason` / `output`) と RV-PRAESIDIUM-01 / 03。
   - 担保: [memory — `common/REVIEW_VULNERABILITY.md` の必須項目と ludiars-review の出力欄 (`latest.json` の `praesidium`。Castra の C++ harness の PR で実装)。gate (未実装) — `check-rule-ids` の対応漏れ検査 (§C9.1)。実装されるまでは memory だけ]
@@ -343,7 +344,7 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
   (RULE_TEST §1 の再確認)。AIFormat が配信する `harness.yml` は本規約の対象外で、扱いは配信元 ([`scripts/HARNESS_CHECKS.md`](./scripts/HARNESS_CHECKS.md)) に従う。
   次の 4 件を `kinds` 付きで登録し、登録後に読み戻して確認する。
   - `cpp-format` [code, test, config] — §C9.3 の `git clang-format` (C/C++ の拡張子に限る) を merge-base に掛け、出力が空なら pass
-  - `cpp-tidy` [code, test, config] — §C9.3 の clang-tidy-diff を merge-base からの diff に掛ける (LLVM 19、リポの `.clang-tidy`、verify preset の `compile_commands.json`)
+  - `cpp-tidy` [code, test, config] — §C9.3 の clang-tidy-diff (C/C++ の拡張子に限る) を merge-base からの diff に掛ける (LLVM 19、リポの `.clang-tidy`、verify preset の `compile_commands.json`)
   - `cpp-build-policy` `always: true` — 規則表を merge-base の diff に適用 (§C9.5)。diff への正規表現適用だけで軽く、`CMakeLists.txt` だけの変更も拾える
   - `ctest` [code, test, config, infra] — `cmake --preset verify` → build → `ctest --preset verify --output-on-failure --no-tests=error`
     (§C4.1 の条件では `verify-cxx23` も同じ手順で回す)
@@ -757,9 +758,16 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
       git clang-format の既定の一覧 (LLVM 19) には `json`・`js`・`ts`・`java`・`proto`・`cs`・Verilog も入っており、正本の `.clang-format` は `Language:` を
       持たず全言語に効くので、指定しないと §C2.10 の `praesidium.json` の登録まで整形の差分になって落ちる。
       シェーダは既定の一覧に無く、clang-format に GLSL の読み方も無い (C++ として読む) ので対象にしない。
-  - clang-tidy は clang-tidy-diff で変更行に限定する: `git diff -U0 <merge-base> | clang-tidy-diff -p1 -path <verify preset のビルドディレクトリ> -quiet`。
+  - clang-tidy は clang-tidy-diff で変更行に限定する:
+    `git diff -U0 --no-color --no-ext-diff --src-prefix=a/ --dst-prefix=b/ <merge-base> | clang-tidy-diff -p1 -path <verify preset のビルドディレクトリ> -quiet -iregex '.*\.(c|cc|cpp|cxx|c\+\+|cppm|ixx|mpp|ccm|cxxm|c\+\+m|m|mm|h|hh|hpp|hxx|h\+\+|inl|ipp|tpp|tcc)'`。
     LLVM 19 の clang-tidy-diff と clang-tidy で、リポの `.clang-tidy` と verify preset の `compile_commands.json` (§C4.4) を使う。
     finding は `.clang-tidy` の `WarningsAsErrors` でエラーになるので、終了コードで判定する。
+    - `-iregex` には整形と同じ C/C++ の拡張子を渡す (大文字小文字を区別しない)。clang-tidy-diff の既定 (`.*\.(cpp|cc|c\+\+|cxx|c|cl|h|hpp|m|mm|inc)`) は
+      `.hh`・`.hxx`・`.h++`・`.inl`・`.ipp`・`.tpp`・`.tcc` とモジュール単位の綴りを外すので、それらの変更は「No relevant changes found.」で exit 0 になる。
+      既定にある `.cl` (OpenCL) と `.inc` の断片も外す。断片は単独でコンパイルできるとは限らず (Revisor も main file にしない)、X マクロの表などは
+      変えると clang のエラーで落ちる。
+    - `git diff` のオプションは、利用者の git 設定 (`diff.noprefix`・`color.diff=always`・`diff.external`) で diff の形が変わり、clang-tidy-diff が
+      変更を 1 つも拾わずに exit 0 になるのを防ぐ。
   - どちらも未追跡のファイルを見ないので、ローカルで回すときは新しいファイルを先に `git add -N` (か commit) する。
   - 有効にする check は正本に名前で列挙する (`clang-analyzer-optin.taint.*` と `clang-analyzer-cplusplus.*` を含む)。グループのワイルドカードは、除外する check の一覧を付けた場合だけ許す。
   - 根拠: Ergo と Ludellus-Native にはこれらの設定ファイルが無い。`modernize-use-constraints` (17 以上)、`bugprone-return-const-ref-from-parameter` と optin.taint の TaintedAlloc (19 以上) を使うため。

@@ -656,6 +656,51 @@ test("規則表の §C 番号は RULE_CODE_CPP.md に実在する", { skip: !exi
   }
 });
 
+/** languages.mjs (Revisor の同期コピー) の拡張子のうち、規則表が C/C++ と読むもの (断片を除く)。綴りはそのまま。 */
+function policyExtensionSpellings() {
+  const source = readFileSync(path.join(HERE, "lib/languages.mjs"), "utf8");
+  const spellings = [];
+  for (const [, group, single] of source.matchAll(/pattern: \/\\\.(?:\(\?:([^)]+)\)|([^$/]+))\$\/i?/g)) {
+    spellings.push(...(group ?? single).split("|").map((ext) => ext.replace(/\\/g, "")));
+  }
+  return spellings;
+}
+
+const TOOL_DOCS = ["../../RULE_CODE_CPP.md", "../README.md"].map((file) => path.join(HERE, file)).filter((file) => existsSync(file));
+
+test("§C9.3 の整形と clang-tidy-diff は規則表と同じ C/C++ の拡張子を見て、clang-tidy-diff へ渡す diff は git の設定に左右されない", { skip: TOOL_DOCS.length === 0 }, () => {
+  const spellings = policyExtensionSpellings();
+  const expected = [...new Set(spellings.filter((ext) => PATHS.native.test(`src/x.${ext}`)).map((ext) => ext.toLowerCase()))].sort();
+  for (const ext of ["c", "cpp", "cppm", "m", "hh", "hxx", "h++", "inl", "tcc"]) assert.ok(expected.includes(ext), ext);
+  for (const ext of ["inc", "def"]) assert.ok(spellings.includes(ext) && !expected.includes(ext), ext);
+  const candidates = [...spellings, "cl", "json", "glsl", "txt"].map((ext) => `src/x.${ext}`);
+  for (const file of TOOL_DOCS) {
+    const doc = readFileSync(file, "utf8");
+    const name = path.basename(file);
+    // RULE_CODE_CPP.md は --extensions の一覧を別のコード片に書く
+    const formatLists = [...doc.matchAll(/(?:--extensions |`)((?:[a-z+]+,){5,}[a-z+]+)/g)].map((m) => m[1].split(",").sort());
+    assert.ok(formatLists.length > 0, `${name}: git clang-format の --extensions が無い`);
+    for (const list of formatLists) assert.deepEqual(list, expected, `${name}: --extensions`);
+    const tidyLines = doc.split("\n").filter((line) => line.includes("| clang-tidy-diff "));
+    assert.ok(tidyLines.length > 0, `${name}: clang-tidy-diff のコマンドが無い`);
+    for (const line of tidyLines) {
+      const iregex = line.match(/ -iregex '([^']+)'/);
+      assert.ok(iregex, `${name}: -iregex が無い (既定は .hh .hxx .inl などを外す): ${line}`);
+      const alternatives = iregex[1].match(/^\.\*\\\.\(([^()]+)\)$/);
+      assert.ok(alternatives, `${name}: -iregex の形: ${iregex[1]}`);
+      assert.deepEqual(alternatives[1].split("|").map((ext) => ext.replace(/\\/g, "")).sort(), expected, `${name}: -iregex`);
+      // clang-tidy-diff は re.match("^%s$", file, re.IGNORECASE) で照合する
+      const matcher = new RegExp(`^${iregex[1]}$`, "i");
+      for (const candidate of candidates) assert.equal(matcher.test(candidate), PATHS.native.test(candidate), `${name}: ${candidate}`);
+      const gitDiff = line.slice(line.indexOf("git diff -U0"), line.indexOf("| clang-tidy-diff "));
+      assert.ok(gitDiff.startsWith("git diff -U0"), `${name}: ${line}`);
+      for (const option of ["--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/"]) {
+        assert.ok(gitDiff.includes(` ${option} `), `${name}: git diff に ${option} が無い`);
+      }
+    }
+  }
+});
+
 // ---- マスク ----
 
 test("maskCommentsAndLiterals: 行番号と長さを保ち、コメントとリテラルだけを空白にする", () => {

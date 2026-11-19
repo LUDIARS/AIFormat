@@ -83,7 +83,7 @@ clang / gcc の `ludiars_cxx_warnings` は、Praesidium の警告パスが有効
   `LORICA_TARGETS` に対象の全 target、`LORICA_PROFILE` に `extended` を渡す。
 - release の preset では `CMAKE_BUILD_TYPE` (単一構成のジェネレータ) を指定する。空だと FORTIFY が付かず、`EXTENDED` もそれを拒まない。
 - 基本 profile (`EXTENDED` なし) は、Linux では stack protector・PIE・RELRO / NX に加えて、標準ライブラリの hardening マクロ (libstdc++ の assertions、
-  libc++ の FAST)・最適化構成の FORTIFY・stack clash と CET / BTI を、使える範囲で付ける (使えないものは警告を出して外す)。
+  libc++ の FAST) を付け、最適化構成の FORTIFY と stack clash・CET / BTI は configure で確かめて付ける (使えなければ警告を出し、FORTIFY は 2 に下げるか外し、フラグは外す)。
   `EXTENDED` は libstdc++ の assertions か libc++ の EXTENSIVE、最適化構成すべてで実効の FORTIFY 3、stack clash と CET / BTI の両方、
   `-ftrivial-auto-var-init=zero` を求め、MSVC では `_MSVC_STL_HARDENING`・`_MSVC_STL_DESTRUCTOR_TOMBSTONES`・`/CETCOMPAT` を求める。どれかが欠ければ configure が失敗する (§C2.9)。
 - Lorica が対応するのは Windows (MSVC 互換) と Linux (GCC / Clang) で、`EXTENDED` は Linux の GCC 12+ / Clang 18+ (x86-64 / AArch64) と
@@ -213,7 +213,8 @@ git add -N <新しいファイル>   # git clang-format と git diff は未追�
 # 整形: 出力が空なら pass (-q が無いと整形済みでも 1 行の報告が出る)
 git clang-format --diff -q --extensions c,cc,cpp,cxx,c++,cppm,ixx,mpp,ccm,cxxm,c++m,m,mm,h,hh,hpp,hxx,h++,inl,ipp,tpp,tcc "$base"
 # clang-tidy: LLVM 19。リポの .clang-tidy と verify preset の compile_commands.json で変更行だけを見て、終了コードで判定する
-git diff -U0 "$base" | clang-tidy-diff -p1 -path <verify preset のビルドディレクトリ> -quiet
+# (-iregex を省くと .hh .hxx .inl .tpp などの変更を見ずに exit 0。git diff のオプションは利用者の git 設定で diff の形が変わるのを防ぐ)
+git diff -U0 --no-color --no-ext-diff --src-prefix=a/ --dst-prefix=b/ "$base" | clang-tidy-diff -p1 -path <verify preset のビルドディレクトリ> -quiet -iregex '.*\.(c|cc|cpp|cxx|c\+\+|cppm|ixx|mpp|ccm|cxxm|c\+\+m|m|mm|h|hh|hpp|hxx|h\+\+|inl|ipp|tpp|tcc)'
 ```
 
 `--extensions` を省くと、git clang-format の既定の一覧にある `json` などにも正本の `.clang-format` (`Language:` を持たず全言語に効く) が掛かり、
