@@ -1,15 +1,17 @@
 // node --test cpp/rules/cpp-rules.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
   rules,
+  languageOf,
   maskCommentsAndLiterals,
+  PATHS,
   scanSource,
   scanChangeset,
   parseRepoConfig,
@@ -103,14 +105,18 @@ const CASES = {
     ],
   },
   "ptr-size-param": {
-    pos: [[PUB, "bool parse(const uint8_t* data, size_t size);\nvoid send(int id,\n          const void* bytes, std::size_t n);\n", [1, 3]]],
+    pos: [
+      [PUB, "bool parse(const uint8_t* data, size_t size);\nvoid send(int id,\n          const void* bytes, std::size_t n);\n", [1, 3]],
+      // `(` / `,` の後のコメントと、1 つの宣言に並んだ 2 組 (先の一致が後の組の `,` を食わない)
+      [PUB, "void copy(/* in */ const char* a, size_t n,\n          const char* b, size_t m);\n", [1, 2]],
+    ],
     neg: [
       ["src/world/proto/datagram.h", "bool parse(const uint8_t* data, size_t size);\n"],
       [PUB, "bool parse(std::span<const std::byte> data);\n// bool parse(const uint8_t* data, size_t size);\n"],
     ],
   },
   "vector-param": {
-    pos: [[PUB, "void set(const std::vector<int>& values);\n", [1]]],
+    pos: [[PUB, "void set(const std::vector<int>& values);\nvoid zip(const std::vector<int>& a,\n         const std::vector<int>& b);\n", [1, 2, 3]]],
     neg: [
       [PUB, "const std::vector<int>& values() const;\n"],
       ["src/net/x.h", "void set(const std::vector<int>& values);\n"],
@@ -152,11 +158,24 @@ const CASES = {
   },
   "banned-api": {
     pos: [
-      [SRC, "int n = atoi(s);\nstd::sscanf(buf, \"%d\", &x);\nstrcpy(a, b);\nint r = rand();\n", [1, 2, 3, 4]],
+      [SRC, "int n = atoi(s);\nstd::sscanf(buf, \"%d\", &x);\nchar* t = strtok(a, b);\nint r = rand();\n", [1, 2, 3, 4]],
       [SRC, "int n = atoi(s); // NOLINT(cpp-rules-C2.1): 既存 (§C2.1)\n", [1]],
+      // Revisor と同じ呼び出しの形: 大域修飾・括弧で囲んだ名前・コメントや行継続を挟んだ呼び出し
+      [SRC, "int a = ::atoi(s);\nint b = (atoi)(s);\nint c = ((std::atoi))(s);\nreturn ::rand();\nint d = atoi /* x */ (s);\nint e = atoi\\\n(s);\n", [1, 2, 3, 4, 5, 6]],
+      ["src/net/x.c", "int n = atol(s);\n", [1]],
+      ["src/net/x.c++", "int n = atoi(s);\n", [1]],
+      ["include/ergo/net/x.h++", "inline int f(const char* s) { return atoi(s); }\n", [1]],
+      ["include/ergo/net/x.tcc", "int n = atoi(s);\n", [1]],
+      ["src/platform/x.m", "int f(const char* s) { return atoi(s); }\n", [1]],
     ],
     neg: [
-      [SRC, "int a = rng.rand();\nint b = my::atoi(x);\nint c = ptr->rand();\nconst char* s = \"atoi(\";\n// strcpy(a, b);\nint n = snprintf(buf, sizeof(buf), \"%d\", v);\noperand(x);\n"],
+      [SRC, "int a = rng.rand();\nint b = my::atoi(x);\nint c = ptr->rand();\nconst char* s = \"atoi(\";\n// atoi(a, b);\nint n = snprintf(buf, sizeof(buf), \"%d\", v);\noperand(x);\n"],
+      // banned.h の形の防御は使用ではない (Revisor の native.unbounded-copy と同じ除外)
+      [SRC, "#define atoi(...) ATOI_IS_BANNED\n#undef rand\n# define strtok(s, d) strtok_is_banned(s, d)\n%:define srand(x) SRAND_IS_BANNED\n"],
+      // Praesidium が関数ごと拒否するもの (strcpy 系・alloca 系) は Praesidium に任せる
+      [SRC, "strcpy(a, b);\nsprintf(buf, f, x);\nvoid* p = alloca(n);\n"],
+      // .inc / .def の断片は単独では見ない (Praesidium と同じ)
+      ["src/net/table.inc", "int n = atoi(s);\n"],
     ],
   },
   "std-sto": {
@@ -473,24 +492,70 @@ const CASES = {
   },
   "pragma-disable": {
     pos: [
-      ["src/log/log.cpp", "#pragma warning(disable: 4774)\n", [1]],
-      ["src/log/log.cpp", "#pragma warning(push)\n// C4774: vsnprintf 転送 (§C2.1)\n#pragma warning(disable: 4774)\n", [3]],
-      ["src/log/log.cpp", "#pragma clang diagnostic push\n#pragma clang diagnostic ignored \"-Wformat-nonliteral\"\n#pragma clang diagnostic pop\n", [2]],
+      // #if defined(_MSC_VER) の外の #pragma warning は clang / GCC の -Wunknown-pragmas になる
+      ["src/log/log.cpp", "#pragma warning(push)\n// C4774: vsnprintf 転送 (§C2.1)\n#pragma warning(disable: 4774)\n#pragma warning(pop)\n", [1, 3, 4]],
+      ["src/log/log.cpp", "#if defined(_MSC_VER)\n#pragma warning(push)\n#pragma warning(disable: 4774)\n#pragma warning(pop)\n#endif\n", [3]],
+      ["src/log/log.cpp", "#ifdef _MSC_VER\n// C4774: vsnprintf 転送 (§C2.1)\n#pragma warning(disable: 4774)\n#endif\n", [3]],
+      ["src/log/log.cpp", "#ifdef _MSC_VER\n#pragma warning(suppress: 4996)\n#pragma warning(push, 0)\n#pragma warning(4: 4996)\n#pragma warning(pop)\n#endif\n", [2, 3, 4]],
+      ["src/log/log.cpp", "#if defined(_MSC_VER)\n#else\n#pragma warning(push)\n#pragma warning(pop)\n#endif\n", [3, 4]],
+      ["src/log/log.cpp", "#if _MSC_VER < 1900 || defined(_MSC_VER)\n#pragma warning(push)\n#endif\n%:pragma warning(pop)\n", [2, 4]],
+      // 行継続の後ろの行だけを追加しても、指令 (# の行) として報告する
+      ["src/log/log.cpp", "#pragma warning \\\n  (disable: 4996)\n", [1], { addedLines: [2] }],
     ],
     neg: [[
       "src/log/log.cpp",
       [
+        "#if defined(_MSC_VER)",
         "#pragma warning(push)",
         "// C4774: ロガーの vsnprintf 転送 (§C2.1)",
         "#pragma warning(disable: 4774)",
+        "#endif",
         "int n = vsnprintf(buf, sizeof(buf), fmt, ap);",
+        "#if defined(_MSC_VER) && !defined(__clang__)",
+        "#pragma warning(error: 4996)",
+        "#endif",
+        "#ifndef _MSC_VER",
+        "int posix = 1;",
+        "#elif _MSC_VER >= 1930",
+        "#pragma warning(default: 4996)",
+        "#else",
+        "#pragma warning(once: 4996)",
+        "#endif",
+        "#ifdef _MSC_VER",
         "#pragma warning(pop)",
-        "#pragma clang diagnostic push",
-        "// -Wformat-nonliteral: ロガーの転送 (§C2.1)",
-        "#pragma clang diagnostic ignored \"-Wformat-nonliteral\"",
-        "#pragma clang diagnostic pop",
+        "#endif",
+        "// #pragma warning(disable: 1)",
+        "const char* s = \"#pragma warning(push)\";",
       ].join("\n"),
     ]],
+  },
+  "analysis-suppression": {
+    pos: [
+      // 理由と push / pop があっても clang / GCC の抑制は使えない
+      ["src/log/log.cpp", "#pragma clang diagnostic push\n// -Wformat-nonliteral: ロガーの転送 (§C2.1)\n#pragma clang diagnostic ignored \"-Wformat-nonliteral\"\n#pragma clang diagnostic pop\n", [3]],
+      ["src/net/x.h", "#pragma GCC diagnostic warning \"-Wformat\"\n#pragma system_header\n#pragma GCC system_header\n#  pragma clang system_header\n", [1, 2, 3, 4]],
+      [SRC, "_Pragma(\"clang diagnostic ignored \\\"-Wall\\\"\")\n#define QUIET __pragma(warning(disable: 4996))\n", [1, 2]],
+      [SRC, "[[clang::suppress]] int a = f();\n[[ clang :: suppress(\"x\") ]] int b;\n__attribute__((suppress)) int c;\n<:<:clang::suppress:>:> int d;\n[[\n  clang::suppress\n]] int e;\n", [1, 2, 3, 4, 6]],
+      ["src/net/x.c", "#ifndef __clang_analyzer__\nint x;\n#endif\n", [1]],
+      // 行継続・コメント・ダイグラフを挟んだ書き方 (プリプロセッサの論理行で読む)。名前の途中の行継続
+      // (`diag\` + 改行 + `nostic`) は Praesidium の native.identifier-splice が拒否する
+      [SRC, "#pragma clang \\\ndiagnostic ignored \"-Wall\"\n#/**/pragma GCC diagnostic ignored \"-Wx\"\n%:pragma GCC diagnostic ignored \"-Wx\"\n/* a\n b */ #pragma GCC diagnostic ignored \"-Wx\"\n", [1, 3, 4, 6]],
+      // 行継続の後ろの行 (どの警告を消すか) だけを追加しても、指令 (# の行) として報告する
+      [SRC, "#pragma clang \\\ndiagnostic ignored \"-Wall\"\n", [1], { addedLines: [2] }],
+      [SRC, "#pragma GCC diagnostic ignored \\\n  \"-Wformat\"\nint x;\n", [1], { addedLines: [2] }],
+    ],
+    neg: [[SRC, [
+      "// #pragma clang diagnostic ignored \"-Wall\"",
+      "const char* s = \"_Pragma __clang_analyzer__ [[clang::suppress]]\";",
+      "#pragma clang diagnostic push",
+      "#pragma clang diagnostic error \"-Wformat\"",
+      "#pragma clang diagnostic pop",
+      "[[gsl::suppress(\"type.1\")]] int a;",
+      "int suppress = 0;",
+      "obj.suppress();",
+      "int v = arr[suppress];",
+      "#pragma once",
+    ].join("\n")]],
   },
 };
 
@@ -577,7 +642,7 @@ test("規則表の各エントリは必須欄を持ち、名前が一意", () =>
     names.add(rule.name);
     assert.ok(["error", "warn"].includes(rule.severity), rule.name);
     assert.ok(["added-lines", "file", "changeset"].includes(rule.scope), rule.name);
-    assert.ok(rule.files instanceof RegExp, rule.name);
+    assert.ok(typeof rule.files?.test === "function", rule.name);
     assert.ok(rule.pattern instanceof RegExp || typeof rule.check === "function", rule.name);
     assert.ok(rule.scope !== "changeset" || typeof rule.check === "function", rule.name);
     for (const key of ["title", "message", "why"]) assert.ok(typeof rule[key] === "string" && rule[key].length > 0, `${rule.name}.${key}`);
@@ -588,6 +653,51 @@ test("規則表の §C 番号は RULE_CODE_CPP.md に実在する", { skip: !exi
   const doc = readFileSync(path.join(HERE, "../../RULE_CODE_CPP.md"), "utf8");
   for (const id of new Set(rules.map((r) => r.id))) {
     assert.match(doc, new RegExp(`\\*\\*§${id.replace(".", "\\.")}[\\s*]`), `RULE_CODE_CPP.md に §${id} の見出しがない`);
+  }
+});
+
+/** languages.mjs (Revisor の同期コピー) の拡張子のうち、規則表が C/C++ と読むもの (断片を除く)。綴りはそのまま。 */
+function policyExtensionSpellings() {
+  const source = readFileSync(path.join(HERE, "lib/languages.mjs"), "utf8");
+  const spellings = [];
+  for (const [, group, single] of source.matchAll(/pattern: \/\\\.(?:\(\?:([^)]+)\)|([^$/]+))\$\/i?/g)) {
+    spellings.push(...(group ?? single).split("|").map((ext) => ext.replace(/\\/g, "")));
+  }
+  return spellings;
+}
+
+const TOOL_DOCS = ["../../RULE_CODE_CPP.md", "../README.md"].map((file) => path.join(HERE, file)).filter((file) => existsSync(file));
+
+test("§C9.3 の整形と clang-tidy-diff は規則表と同じ C/C++ の拡張子を見て、clang-tidy-diff へ渡す diff は git の設定に左右されない", { skip: TOOL_DOCS.length === 0 }, () => {
+  const spellings = policyExtensionSpellings();
+  const expected = [...new Set(spellings.filter((ext) => PATHS.native.test(`src/x.${ext}`)).map((ext) => ext.toLowerCase()))].sort();
+  for (const ext of ["c", "cpp", "cppm", "m", "hh", "hxx", "h++", "inl", "tcc"]) assert.ok(expected.includes(ext), ext);
+  for (const ext of ["inc", "def"]) assert.ok(spellings.includes(ext) && !expected.includes(ext), ext);
+  const candidates = [...spellings, "cl", "json", "glsl", "txt"].map((ext) => `src/x.${ext}`);
+  for (const file of TOOL_DOCS) {
+    const doc = readFileSync(file, "utf8");
+    const name = path.basename(file);
+    // RULE_CODE_CPP.md は --extensions の一覧を別のコード片に書く
+    const formatLists = [...doc.matchAll(/(?:--extensions |`)((?:[a-z+]+,){5,}[a-z+]+)/g)].map((m) => m[1].split(",").sort());
+    assert.ok(formatLists.length > 0, `${name}: git clang-format の --extensions が無い`);
+    for (const list of formatLists) assert.deepEqual(list, expected, `${name}: --extensions`);
+    const tidyLines = doc.split("\n").filter((line) => line.includes("| clang-tidy-diff "));
+    assert.ok(tidyLines.length > 0, `${name}: clang-tidy-diff のコマンドが無い`);
+    for (const line of tidyLines) {
+      const iregex = line.match(/ -iregex '([^']+)'/);
+      assert.ok(iregex, `${name}: -iregex が無い (既定は .hh .hxx .inl などを外す): ${line}`);
+      const alternatives = iregex[1].match(/^\.\*\\\.\(([^()]+)\)$/);
+      assert.ok(alternatives, `${name}: -iregex の形: ${iregex[1]}`);
+      assert.deepEqual(alternatives[1].split("|").map((ext) => ext.replace(/\\/g, "")).sort(), expected, `${name}: -iregex`);
+      // clang-tidy-diff は re.match("^%s$", file, re.IGNORECASE) で照合する
+      const matcher = new RegExp(`^${iregex[1]}$`, "i");
+      for (const candidate of candidates) assert.equal(matcher.test(candidate), PATHS.native.test(candidate), `${name}: ${candidate}`);
+      const gitDiff = line.slice(line.indexOf("git diff -U0"), line.indexOf("| clang-tidy-diff "));
+      assert.ok(gitDiff.startsWith("git diff -U0"), `${name}: ${line}`);
+      for (const option of ["--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/"]) {
+        assert.ok(gitDiff.includes(` ${option} `), `${name}: git diff に ${option} が無い`);
+      }
+    }
   }
 });
 
@@ -630,7 +740,148 @@ test("maskCommentsAndLiterals: CMake はコメントだけを消し、引用引�
   assert.match(masked, /add_compile_options\(\[\[\/W4\]\]\)/);
 });
 
+test("maskCommentsAndLiterals: keepComments はリテラルの中の // や NOLINT を残さない (raw 文字列・行継続を含む)", () => {
+  const src = "auto r = R\"x(\n// NOLINT(a): b (§C1.1)\n)x\"; // NOLINT(c): d (§C1.1)\nconst char* s = \"a\\\r\n// NOLINT(e)\"; int k = 1'000; char q = '\"';\n";
+  const masked = maskCommentsAndLiterals(src, { keepComments: true });
+  assert.equal(masked.length, src.length);
+  assert.ok(!/NOLINT\((?:a|e)\)/.test(masked), "raw 文字列と CR LF の行継続で続くリテラルの中身は消える");
+  assert.match(masked, /\/\/ NOLINT\(c\): d/);
+  assert.match(masked, /int k = 1'000; char q = ' ';/);
+  // 接頭辞と引用符の間に行継続がある raw 文字列も、中身だけを消す
+  const spliced = maskCommentsAndLiterals("auto r = R\\\n\"x(\n// NOLINT(a)\n)x\"; // NOLINT(c)\n", { keepComments: true });
+  assert.ok(!/NOLINT\(a\)/.test(spliced) && /NOLINT\(c\)/.test(spliced));
+});
+
+// ---- 字句処理: Revisor native-lexer の同期コピーで、旧マスクの回避を塞ぐ ----
+
+test("字句処理: 旧マスクで後続のコードが隠れた書き方でも禁止 API を見つける", () => {
+  const cases = [
+    // header-name の中の /* はコメントを開かない
+    [SRC, "#include <x/*y>\nint n = atoi(s);\n/* */\n", [2]],
+    // CR LF の前の \ と、\ と改行の間の空白は行継続 (リテラルは次の行へ続き、閉じた後はコード)
+    [SRC, "const char* s = \"a\\\r\nb\"; int n = atoi(s);\r\n", [2]],
+    [SRC, "const char* s = \"a\\  \nb\"; int n = atoi(s);\n", [2]],
+    // 単独の CR も行の終わり (行コメントはそこで終わる)
+    [SRC, "// note\r int n = atoi(s);\n", [1]],
+    // 非 ASCII の識別子に続く R" は raw 文字列の接頭辞ではない
+    [SRC, "#define \u00e9R\nconst char* p = \u00e9R\"(x\";\nint n = atoi(s);\nconst char* q = \")\";\n", [3]],
+    // 閉じない raw 文字列は行末までしか隠さない
+    [SRC, "auto s = R\"(abc\nint n = atoi(s);\n", [2]],
+    // C に raw 文字列は無い (R は名前)。C17 では 1'0' の ' は文字リテラル
+    ["src/net/x.c", "const char* s = R\"(\";\nint n = atoi(s);\n// )\"\n", [2]],
+    ["src/net/x.c", "int x = 1'0'; int n = atoi(s);\n", [1]],
+    // ヘッダは C と C++ のどちらでも読まれうるので、各読み方の finding を合算する
+    ["include/ergo/net/x.h", "const char* s = R\"(\";\nint n = atoi(s);\n// )\"\n", [2]],
+  ];
+  for (const [file, source, expected] of cases) {
+    assert.deepEqual(linesOf("banned-api", file, source), expected, JSON.stringify(source));
+  }
+  // C++ では R"( ... )" が raw 文字列なので、中の atoi はコードではない
+  assert.deepEqual(linesOf("banned-api", SRC, "const char* s = R\"(\";\nint n = atoi(s);\n// )\"\n"), []);
+});
+
+test("字句処理: リテラルの中の NOLINT では抑制できない (CR LF の行継続で続くリテラルを含む)", () => {
+  assert.deepEqual(linesOf("reinterpret-cast", SRC,
+    "auto p = reinterpret_cast<int*>(q); const char* s = \"// NOLINT(cppcoreguidelines-pro-type-reinterpret-cast): x (§C2.5)\";\n"), [1]);
+  assert.deepEqual(linesOf("c-style-cast", SRC,
+    "const char* s = \"a\\\r\n// NOLINT(cpp-rules-C2.6): x (§C2.6)\"; int v = (int)f;\r\n"), [2]);
+});
+
+test("ヘッダの C++ の規則は C++ の読み方だけで照合する (C の読み方の raw 文字列と桁区切りで誤検出しない)", () => {
+  const rulesAt = (file, source) => scanSource(file, source).map((f) => `${f.rule}@${f.line}`);
+  // C の読み方では raw 文字列の中身がコードになるが、キャストは C++ の規則なので C++ のコードとして読む
+  const glsl = [
+    "#pragma once",
+    "inline constexpr const char* kFrag = R\"glsl(",
+    "#version 450",
+    "void main() {",
+    "  int idx = int(uv.x * 4.0);",
+    "  float f = (float)idx / 4.0;",
+    "}",
+    ")glsl\";",
+    "",
+  ].join("\n");
+  assert.deepEqual(rulesAt("include/ergo/render/blit_shader.hpp", glsl), []);
+  // C17 の読み方では 1'024 の ' から行末までが文字リテラルになり、行末の NOLINT が隠れる
+  for (const check of ["cpp-rules-C2.5", "cppcoreguidelines-pro-type-reinterpret-cast"]) {
+    const wire = `inline const std::byte* at(const void* b) { return reinterpret_cast<const std::byte*>(b) + 1'024; } // NOLINT(${check}): wire offset (§C2.5)\n`;
+    for (const file of ["src/wire.hpp", "src/wire.h", "include/ergo/net/wire.h", "src/wire.cpp"]) assert.deepEqual(rulesAt(file, wire), [], `${file} ${check}`);
+  }
+  // C にも当てはまる規則 (禁止 API・抑制) は Praesidium と同じく全部の読み方で照合する: C の読み方では raw 文字列の中身もコード
+  const snippet = [
+    "#pragma once",
+    "inline constexpr const char* kSnippet = R\"cpp(",
+    "  int v = atoi(s);",
+    "  auto* p = reinterpret_cast<int*>(q);",
+    "  #pragma GCC diagnostic ignored \"-Wall\"",
+    "  using namespace std;",
+    ")cpp\";",
+    "",
+  ].join("\n");
+  assert.deepEqual(rulesAt("src/snippet.hpp", snippet), ["banned-api@3", "analysis-suppression@5"]);
+  assert.deepEqual(rulesAt("src/snippet.cpp", snippet), []);
+});
+
+test("finding の上限: 読み方ごとに打ち切っても、行の小さいほうから 200 件と finding-limit は変わらない", () => {
+  // 2 行目の atoi は C の読み方でだけ見える (C++ では raw 文字列の中)。4 行目からの 300 行はどの読み方でも見える
+  const source = "const char* s = R\"(\";\nint n = atoi(s);\n// )\"\n" + "int m = atoi(s);\n".repeat(300);
+  const findings = scanSource("src/net/x.h", source);
+  const expected = [2];
+  for (let line = 4; expected.length < 200; line++) expected.push(line);
+  assert.deepEqual(findings.slice(0, 200).map((f) => f.line), expected);
+  assert.ok(findings.slice(0, 200).every((f) => f.rule === "banned-api"));
+  assert.deepEqual(findings.slice(200).map((f) => `${f.rule}@${f.line}`), ["finding-limit@202"]);
+});
+
+test("拡張子の表は Revisor の languages.mjs と同じ (同期コピー)", () => {
+  const cases = {
+    "src/a.c": "cpp", "src/a.C": "cpp", "src/a.c++": "cpp", "src/a.cc": "cpp", "src/a.CPP": "cpp",
+    "src/a.m": "cpp", "src/a.M": "cpp", "src/a.mm": "cpp",
+    "src/a.ccm": "cpp", "src/a.cxxm": "cpp", "src/a.c++m": "cpp", "src/a.cppm": "cpp", "src/a.ixx": "cpp", "src/a.mpp": "cpp",
+    "include/x/a.h++": "cpp", "include/x/a.tcc": "cpp", "include/x/a.H": "cpp", "include/x/a.ipp": "cpp",
+    "src/a.inc": null, "src/a.def": null, "CMakeLists.txt": "cmake", "shaders/a.comp": "shader",
+  };
+  for (const [file, lang] of Object.entries(cases)) assert.equal(languageOf(file), lang, file);
+  assert.ok(PATHS.cpp.test("src/a.c++") && !PATHS.cpp.test("src/a.c") && !PATHS.cpp.test("src/a.m"));
+  assert.ok(PATHS.cpp.test("src/a.C") && PATHS.cpp.test("src/a.M"), "C と C++ のどちらにもなる .C / .M は C++ の規則にも掛ける");
+  assert.ok(PATHS.header.test("include/x/a.h++") && PATHS.publicHeader.test("include/x/a.tcc") && !PATHS.header.test("src/a.inc"));
+  assert.ok(PATHS.moduleUnit.test("src/a.c++m") && PATHS.source.test("src/a.c++") && PATHS.testSource.test("tests/x/a.c++"));
+  assert.deepEqual(linesOf("module-unit-file", "src/math/vec.ccm", "int x;\n"), [1]);
+  for (const synced of ["native-lexer.mjs", "languages.mjs"]) {
+    const first = readFileSync(path.join(HERE, "lib", synced), "utf8").split("\n")[0];
+    assert.match(first, new RegExp(`^// synced-from: LUDIARS/Revisor src/praesidium/${synced.replace(".", "\\.")} @ [0-9a-f]{7,}$`), synced);
+  }
+  const probe = readFileSync(path.join(HERE, "lib", "native-objc-probe.mjs"), "utf8").split("\n")[0];
+  assert.match(probe, /^\/\/ synced-from: LUDIARS\/Revisor src\/praesidium\/files\.mjs @ [0-9a-f]{7,}$/);
+});
+
+test("C 系の印の無い小文字の .m (MATLAB など) は Praesidium と同じく読まず、Objective-C の .m は読む", () => {
+  const rulesAt = (file, source) => scanSource(file, source).map((f) => `${f.rule}@${f.line}`);
+  assert.deepEqual(rulesAt("tools/noise.m", "% plot noise\nx = rand(3);\nplot(x);\n"), []);
+  assert.deepEqual(rulesAt("src/app.m", "#import <stdlib.h>\nint r(void) { return rand(); }\n"), ["banned-api@2"]);
+  // 本体の { だけでも Objective-C として読む。大文字の .M は中身によらず読む
+  assert.deepEqual(rulesAt("src/app.m", "int r(void)\n{ return rand(); }\n"), ["banned-api@2"]);
+  assert.deepEqual(rulesAt("src/app.M", "x = rand(3);\n"), ["banned-api@1"]);
+  // 変更集合でも同じ
+  assert.deepEqual(scanChangeset([{ file: "tools/noise.m", source: "x = rand(3);\n", addedLines: null }]).map((f) => f.rule), []);
+});
+
 // ---- 抑制・範囲・漏洩 ----
+
+test("NOLINT の check 名の glob は * の並びでも長さに比例する時間で照合する", () => {
+  // 正規表現 (* → .*) にすると * が 1 つ増えるごとに約 6 倍遅くなり、16 個では止まらなかった
+  const line = `auto p = reinterpret_cast<int*>(q); // NOLINT(${"*".repeat(16)}x): r (§C2.5)\n`;
+  const started = process.hrtime.bigint();
+  const findings = scanSource("src/a.cpp", line).map((f) => f.rule);
+  const ms = Number(process.hrtime.bigint() - started) / 1e6;
+  assert.ok(ms < 1000, `${ms.toFixed(0)} ms`);
+  assert.ok(findings.includes("reinterpret-cast"), "x で終わらない check 名には一致しない");
+  // glob の意味は変えない: * は任意の長さ、ほかの文字はそのまま
+  const suppressed = (list) => !scanSource("src/a.cpp", `auto p = reinterpret_cast<int*>(q); // NOLINT(${list}): r (§C2.5)\n`)
+    .some((f) => f.rule === "reinterpret-cast");
+  assert.ok(suppressed("cpp-rules-C2.5") && suppressed("cpp-rules-*") && suppressed("*-C2.5") && suppressed("cpp-*-C2*"));
+  assert.ok(!suppressed("cpp-rules-C2.6") && !suppressed("cpp-rules-C2") && !suppressed("cpp.rules-C2.5"));
+});
 
 test("NOLINT(cpp-rules-<id>) で抑制でき、NEXTLINE と BEGIN/END も効く", () => {
   const src = [
@@ -642,6 +893,70 @@ test("NOLINT(cpp-rules-<id>) で抑制でき、NEXTLINE と BEGIN/END も効く"
     "using C = std::enable_if_t<true>;",
   ].join("\n");
   assert.deepEqual(linesOf("sfinae", PUB, src), [6]);
+});
+
+test("NOLINTBEGIN / END は check ごとに直前の注釈で判定し、BEGIN と同じ行や対応しない END は範囲にしない", () => {
+  const src = [
+    "// NOLINTBEGIN(cpp-rules-C1.2, cpp-rules-C2.6): 生成コード (§C1.2)",
+    "using A = std::enable_if_t<true>; int a = (int)x;",
+    "// NOLINTEND(cpp-rules-C2.6)",
+    "using B = std::enable_if_t<true>; int b = (int)x;",
+    "// NOLINTEND(cpp-rules-C1.2)",
+    "using C = std::enable_if_t<true>; // NOLINTBEGIN(cpp-rules-C1.2): 同じ行は範囲外 (§C1.2)",
+    "// NOLINTEND(cpp-rules-C1.*)",
+    "using D = std::enable_if_t<true>;",
+  ].join("\n");
+  assert.deepEqual(linesOf("sfinae", PUB, src), [6, 8]);
+  assert.deepEqual(linesOf("c-style-cast", PUB, src), [4]);
+});
+
+test("抑制注釈と #pragma の範囲は線形に求める (2 MiB の入力がフックの 3 秒に収まる)", () => {
+  const MiB = 1024 * 1024;
+  const repeat = (unit) => unit.repeat(Math.ceil(2 * MiB / unit.length));
+  const inputs = {
+    // 注釈の多いファイル: 行ごとに BEGIN / END と finding
+    nolint: repeat("// NOLINTBEGIN(cpp-rules-C2.6): x (§C2.6)\nint a = (int)x;\n// NOLINTEND(cpp-rules-C2.6)\nint b = (int)y;\n"),
+    // MSVC の push / disable / pop の入れ子
+    pragma: "#if defined(_MSC_VER)\n" + repeat("#pragma warning(push)\n// C4774: x (§C2.1)\n#pragma warning(disable: 4774)\n") + "#endif\n",
+    // 1 行に一致が並ぶ
+    oneLine: repeat("int v = (int)x; ") + "\n",
+    // 属性の括弧の入れ子と未閉じ
+    brackets: repeat("[[ [ ( "),
+  };
+  for (const [name, source] of Object.entries(inputs)) {
+    const started = process.hrtime.bigint();
+    scanSource(SRC, source);
+    const ms = Number(process.hrtime.bigint() - started) / 1e6;
+    assert.ok(ms < 3000, `${name}: ${ms.toFixed(0)} ms`);
+  }
+});
+
+test("長い注釈の行と 3 つの読み方で読むヘッダも、2 MiB が線形の時間 (6 秒未満) に収まる", () => {
+  const MiB = 1024 * 1024;
+  const fill = (unit) => unit.repeat(Math.ceil(2 * MiB / unit.length)).slice(0, 2 * MiB);
+  const finding = "\nint* p = reinterpret_cast<int*>(q);\n";
+  const inputs = [
+    // 閉じない NOLINT( / NOLINTNEXTLINE( が並ぶ 1 行 (注釈の取り出しが後戻りしない)。抑制できる finding は抑制されない
+    ["nolintParen", SRC, fill("NOLINT(") + finding, ["nolint-form@1", "reinterpret-cast@2"]],
+    ["nolintNextLineParen", SRC, fill("NOLINTNEXTLINE(") + finding, ["nolint-form@1", "reinterpret-cast@2"]],
+    // 理由の後ろに空白が続く NOLINT と、`:` が続く MSVC の理由の行
+    ["nolintReasonBlanks", SRC, `int a = (int)x; // NOLINT(cpp-rules-C2.6): a${" ".repeat(2 * MiB)}\n`, ["nolint-form@1"]],
+    ["pragmaReasonColons", SRC, `#if defined(_MSC_VER)\n#pragma warning(push)\n//${fill(": ")}\n#pragma warning(disable: 4774)\n#pragma warning(pop)\n#endif\n`, ["pragma-disable@4"]],
+    // ' を含むヘッダは C17・C23・C++ の 3 つの読み方で読む
+    ["headerQuote", "src/a.h", fill("x'a' atoi(s);\n"), null],
+    // 公開ヘッダの大きなブロックコメント (§C1.6 の照合が空白の並びで 2 乗にならない)
+    ["publicHeaderComment", PUB, `char c = 'a';\n/*${"x".repeat(2 * MiB)}*/\nbool parse(const uint8_t* data, size_t size);\n`, ["ptr-size-param@3"]],
+  ];
+  for (const [name, file, source, expected] of inputs) {
+    const started = process.hrtime.bigint();
+    const findings = scanSource(file, source);
+    const ms = Number(process.hrtime.bigint() - started) / 1e6;
+    // 単独では 0.1〜1.4 秒。並行するテスト (baseline の cmake とコンパイラ) で遅れても落ちない上限にする。
+    // 2 乗の時間なら 512 KiB でも 10 秒を超える (この PR より前の実装) ので、上限は線形と 2 乗を分ける。
+    assert.ok(ms < 6000, `${name}: ${ms.toFixed(0)} ms`);
+    if (expected) assert.deepEqual(findings.map((f) => `${f.rule}@${f.line}`), expected, name);
+    else assert.equal(findings.at(-1).rule, "finding-limit", name);
+  }
 });
 
 test("追加行に無い finding は報告しない、削除だけの変更は何も報告しない", () => {
@@ -760,6 +1075,33 @@ test("CLI: merge-base からの追加行だけを検査し、finding があれ�
     out = capture(); err = capture();
     assert.equal(main([dir, "--base", "main"], { stdout: out, stderr: err }), 1);
     assert.match(err.text, /未知のキー/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("CLI: symlink を経由して起動しても実行する (起動パスと自身を実パスで比べる)", (t) => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "cpp-rules-"));
+  try {
+    const link = path.join(dir, "rules-link");
+    try {
+      symlinkSync(HERE, link, "dir");
+    } catch (error) {
+      t.skip(`symlink を作れない (${error.code})`);
+      return;
+    }
+    const repo = path.join(dir, "repo");
+    mkdirSync(path.join(repo, "src"), { recursive: true });
+    sh(repo, "init", "-q");
+    writeFileSync(path.join(repo, "src/a.cpp"), "int a = 0;\n");
+    sh(repo, "add", ".");
+    sh(repo, "commit", "-q", "-m", "base");
+    writeFileSync(path.join(repo, "src/a.cpp"), "int a = 0;\nint b = atoi(s);\n");
+
+    const run = spawnSync(process.execPath, [path.join(link, "cpp-rules.mjs"), repo, "--base", "main"], { encoding: "utf8" });
+    assert.equal(run.status, 1, `stdout: ${run.stdout}\nstderr: ${run.stderr}`);
+    assert.match(run.stdout, /src\/a\.cpp:2: error \[§C2\.1 banned-api\]/);
+    assert.match(run.stdout, /finding 1 件/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -94,7 +94,8 @@ Checks:
   #   SmartPtrModeling / VirtualCallModeling / SelfAssignment は依存で自動有効)。
   #   clang-tidy は analyzer の check を 1 つでも有効にすると clang-analyzer-core.*
   #   も自動で有効にする (path-sensitive な check の前提)。--list-checks に
-  #   core.* が出るのはこのため。Praesidium (core,unix,security) と一部重なる。
+  #   core.* が出るのはこのため。Praesidium の解析パス (core・cplusplus・unix・security ほか。
+  #   RV-PRAESIDIUM-03) と一部重なる。
   - clang-analyzer-cplusplus.NewDelete
   - clang-analyzer-cplusplus.NewDeleteLeaks
   - clang-analyzer-cplusplus.InnerPointer
