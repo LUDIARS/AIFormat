@@ -77,13 +77,22 @@ clang / gcc の `ludiars_cxx_warnings` は、Praesidium の警告パスが有効
 
 - `find_package(Lorica 0.1 CONFIG REQUIRED)` で取り込み、同じ実行ファイル・共有ライブラリにリンクする、ソースからビルドする全 target に
   `lorica_harden_target(<target> EXTENDED)` を付ける (§C4.10)。release の preset だけで ON にする option (§C4.6 の `<PREFIX>_ENABLE_*`) で切り替える。
+  `find_package(Lorica)` は最上位の `CMakeLists.txt` のディレクトリスコープで、`add_subdirectory` より前に呼ぶ
+  (MSVC 19.52+ で `cxx_std_23` を ISO の `/std:c++23` にする Lorica の切り替えは、呼んだディレクトリ以下にだけ効く。§C4.1)。
 - `CMakeLists.txt` を変えずに付けるときは、preset で `CMAKE_PROJECT_TOP_LEVEL_INCLUDES` に Lorica の `cmake/LoricaInject.cmake`、
   `LORICA_TARGETS` に対象の全 target、`LORICA_PROFILE` に `extended` を渡す。
+- release の preset では `CMAKE_BUILD_TYPE` (単一構成のジェネレータ) を指定する。空だと FORTIFY が付かず、`EXTENDED` もそれを拒まない。
+- 基本 profile (`EXTENDED` なし) は、Linux では stack protector・PIE・RELRO / NX に加えて、標準ライブラリの hardening マクロ (libstdc++ の assertions、
+  libc++ の FAST)・最適化構成の FORTIFY・stack clash と CET / BTI を、使える範囲で付ける (使えないものは警告を出して外す)。
+  `EXTENDED` は libstdc++ の assertions か libc++ の EXTENSIVE、最適化構成すべてで実効の FORTIFY 3、stack clash と CET / BTI の両方、
+  `-ftrivial-auto-var-init=zero` を求め、MSVC では `_MSVC_STL_HARDENING`・`_MSVC_STL_DESTRUCTOR_TOMBSTONES`・`/CETCOMPAT` を求める。どれかが欠ければ configure が失敗する (§C2.9)。
 - Lorica が対応するのは Windows (MSVC 互換) と Linux (GCC / Clang) で、`EXTENDED` は Linux の GCC 12+ / Clang 18+ (x86-64 / AArch64) と
   MSVC 19.44+ (x64) だけ。それ以外 (Apple clang、Android NDK など) では configure が失敗するので、それらの release preset では ON にしない。
-- `EXTENDED` は `LUDIARS_CXX_HARDENING` と同じ preset では使わない (未初期化の自動変数を baseline は `-ftrivial-auto-var-init=pattern`、`EXTENDED` は `=zero` にする。Lorica の基本のプロファイルは初期化を変えない)。
+- Lorica の profile は、基本 profile も `EXTENDED` も `LUDIARS_CXX_HARDENING` と同じ preset では使わない。Lorica は標準ライブラリの hardening マクロを
+  target ごとに付けて前の定義を置き換える (Linux では基本 profile も) ので、baseline がビルド全体に付けた値が Lorica を付けた target でだけ変わる (§C4.10)。
+  未初期化の自動変数も、baseline は `-ftrivial-auto-var-init=pattern`、`EXTENDED` は `=zero` にする。
 - `lorica_deprecate_unsafe_apis(<target>)` は、その target の非推奨をすべてエラーにするので、準拠 target にだけ付ける (§C4.3)。
-- 付けるものと限界は Lorica の `README.md` と `spec/feature/security-contracts.md` (SPEC-LR-EXTENDED / SPEC-LR-UNSAFE-API) を正とする。
+- 付けるものと限界は Lorica の `README.md` と `spec/feature/security-contracts.md` (SPEC-LR-EXTENDED / SPEC-LR-UNSAFE-API / SPEC-LR-CXX23) を正とする。
 
 ## 規則表の設定 (`cpp-rules.json`)
 

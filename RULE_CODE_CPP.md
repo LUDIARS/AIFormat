@@ -234,14 +234,24 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
   `std::out_of_range` を catch して分岐する書き方はしない。
   - 配布するビルド (release の preset) のコンパイラ・リンカのハードニングは baseline に持たせず、Lorica (`LUDIARS/Lorica`) の
     `lorica_harden_target(<target> EXTENDED)` で付ける。同じフラグを baseline や target ごとの `target_compile_options` に書かない。
-    - Lorica の基本 profile: Windows (MSVC 互換) は `/GS /sdl /guard:cf` とリンクの `/guard:cf /DYNAMICBASE /NXCOMPAT` (64 bit は `/HIGHENTROPYVA`)、
-      Linux (GCC / Clang) は `-fstack-protector-strong`・PIC (実行ファイルは `-pie`)・リンクの RELRO / NOW / noexecstack。
-    - `EXTENDED` で加わるもの: Linux (GCC 12+ / Clang 18+、x86-64 / AArch64) は標準ライブラリの hardening マクロ・最適化構成の `_FORTIFY_SOURCE=3`・
-      `-ftrivial-auto-var-init=zero`・`-fstack-clash-protection`・`-fcf-protection=full` (x86-64) か `-mbranch-protection=standard` (AArch64)。
-      MSVC 19.44+ (x64) は `_MSVC_STL_HARDENING=1`・`_MSVC_STL_DESTRUCTOR_TOMBSTONES=1`・`/CETCOMPAT`。
-    - それ以外の toolchain (Apple clang、Android NDK など) では configure が失敗する (黙って弱めない)。付ける preset は `lorica_extended_hardening_supported(<var>)` で確かめる。
-      詳細と限界は Lorica の `spec/feature/security-contracts.md` (SPEC-LR-EXTENDED)。
-    - `EXTENDED` は、同じ実行ファイル・共有ライブラリにリンクする、ソースからビルドする全 target に付ける (§C4.10)。
+    - Lorica の基本 profile (`EXTENDED` を付けない `lorica_harden_target(<target>)`):
+      - Windows (MSVC 互換) は `/GS /sdl /guard:cf` とリンクの `/guard:cf /DYNAMICBASE /NXCOMPAT` (64 bit は `/HIGHENTROPYVA`)。
+      - Linux (GCC / Clang) は `-fstack-protector-strong`・PIC (実行ファイルは `-pie`)・リンクの RELRO / NOW / noexecstack に加え、
+        標準ライブラリの hardening マクロ (libstdc++ の `_GLIBCXX_ASSERTIONS`、libc++ の FAST。古い libc++ はモードを無視しうる)、
+        最適化構成 (Release / RelWithDebInfo / MinSizeRel) の `_FORTIFY_SOURCE` (GCC / Clang 12+ は 3、それより前は 2)、
+        `-fstack-clash-protection` と `-fcf-protection=full` (x86-64) か `-mbranch-protection=standard` (AArch64) を求める。
+        FORTIFY と stack clash・CET / BTI は configure で確かめて付ける best effort で、使えなければ警告を出し、FORTIFY は実効 2 に下げるか外し、フラグは外す (configure は止めない)。
+    - `EXTENDED` が求めるもの (1 つでも欠ければ configure が失敗する。黙って弱めない):
+      - Linux は GCC 12+ / Clang 18+ の x86-64 / AArch64 (64 bit ABI) で、libstdc++ の assertions か libc++ の EXTENSIVE、
+        最適化構成すべてで実効の `_FORTIFY_SOURCE=3`、`-fstack-clash-protection` と CET / BTI の両方、`-ftrivial-auto-var-init=zero`。
+      - MSVC は 19.44+ (x64) で、`_MSVC_STL_HARDENING` と `_MSVC_STL_DESTRUCTOR_TOMBSTONES` を解する STL と `/CETCOMPAT` を受け付けるリンカ
+        (両マクロを 1 にし、リンクに `/CETCOMPAT` を付ける)。clang-cl は基本 profile だけを使える。
+    - それ以外の toolchain (Apple clang、Android NDK など) では基本 profile も `EXTENDED` も configure が失敗する。`EXTENDED` を付ける preset は
+      `lorica_extended_hardening_supported(<var>)` で確かめる。詳細と限界は Lorica の `spec/feature/security-contracts.md` (SPEC-LR-EXTENDED)。
+    - Lorica の profile は標準ライブラリの hardening マクロを target ごとに付け、それまでの定義を置き換える (Linux は基本 profile も `EXTENDED` も
+      `-U` と `-D` の組で、MSVC は `EXTENDED` が `_MSVC_STL_*` を定義する)。このため Lorica の profile は、同じ実行ファイル・共有ライブラリにリンクする、
+      ソースからビルドする全 target に同じ profile で付け (§C4.10)、基本 profile も `EXTENDED` も `LUDIARS_CXX_HARDENING` と同じ preset では使わない
+      (baseline がビルド全体に付けた値が Lorica を付けた target でだけ置き換わる。未初期化の自動変数も baseline は `=pattern`、`EXTENDED` は `=zero` にする)。
     - (推奨) 配布する実行ファイルと共有ライブラリには、対応する toolchain で `EXTENDED` を付ける。
   - 根拠: Ergo と Ludellus-Native の CMake に hardening の定義が 0 件。ホットパスで `at()` を強制すると frame budget と衝突するので、検査はライブラリ側の hardening に任せる。
     `_FORTIFY_SOURCE`、stack protector、CFI、PIE / RELRO、`/guard:cf` の担当がどこにも無かったので、製品側の部品を持つ Lorica に一本化した
@@ -404,6 +414,10 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
     target ごとの `set_target_properties(... CXX_STANDARD)` や `cxx_std_*` は禁止。C++23 を選ぶときは、最上位で `LUDIARS_CXX_STANDARD=23` を設定する
     (許可値は 20 / 23、既定 20。指定方法は `cpp/README.md`)。
   - 同一ビルドに複数の LUDIARS リポが入るとき、baseline target は最上位で一度だけ定義されて共用され、標準は最上位の指定で決まる。
+  - MSVC 19.52+ では、Lorica を取り込むと `cxx_std_23` の切り替えが CMake の `/std:c++latest` (C++26 の草案機能も有効) から ISO の `/std:c++23` に変わる。
+    変わるのは `find_package(Lorica)` を呼んだディレクトリとその後に追加する配下だけ (`LoricaInject.cmake` ではビルド全体。Lorica の SPEC-LR-CXX23) なので、
+    `LUDIARS_CXX_STANDARD=23` のビルドで `find_package(Lorica)` を使うときは、最上位の `CMakeLists.txt` のディレクトリスコープで `add_subdirectory` より前に呼ぶ。
+    ほかの場所で呼ぶと、1 つのビルドに `/std:c++23` の TU と `/std:c++latest` の TU が混ざる。
   - 下位ライブラリ (Ergo / Pictor) が C++23 を下限にする (C++23 機能を必須にする) のは、そのライブラリを取り込む全ホスト
     (Ludellus-Native / AdventureCube / KuzuSurvivors) の `LUDIARS_CXX_STANDARD` を 23 にする pin 更新 PR を同時に出す場合に限る。
     それまでは `LUDIARS_CXX_STANDARD=20` と `=23` の両方の verify preset (`verify` / `verify-cxx23`) を `ctest` 登録テスト (§C3.4) で回し、
@@ -491,9 +505,12 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
   - 設定マクロを持つ公開ヘッダは、設定値を名前に埋めた extern シンボル (例: `ergo_math_simd_cfg_<値>`) を参照する inline 変数を置き、
     ライブラリの .cpp だけがそのシンボルを定義する。MSVC では `#pragma detect_mismatch("ERGO_MATH_SIMD", "<値>")` を併用する
     (inline 関数の本体の違いはリンカが黙って片方を選ぶので、名前の違いでリンクを失敗させる)。
-  - 標準ライブラリの hardening マクロ (`_GLIBCXX_ASSERTIONS`・`_LIBCPP_HARDENING_MODE`・`_MSVC_STL_HARDENING`。§C2.9 の baseline と Lorica の `EXTENDED` が付けるもの) も、
+  - 標準ライブラリの hardening マクロ (`_GLIBCXX_ASSERTIONS`・`_LIBCPP_HARDENING_MODE`・`_MSVC_STL_HARDENING`・`_MSVC_STL_DESTRUCTOR_TOMBSTONES`。
+    §C2.9 の baseline の `LUDIARS_CXX_HARDENING` と、Lorica の profile (Linux では基本 profile も、MSVC では `EXTENDED`) が付けるもの) も、
     1 つの実行ファイル・共有ライブラリにリンクする全 TU で同じ値にする。target ごと・TU ごとに付け外ししない
     (値の違う TU が混ざると、`std::vector::operator[]` などの同名の inline 関数が 2 種類でき、リンカが検査の無いほうを残しうる)。
+    Lorica はこれらを target ごとに付けて前の定義を置き換えるので、Lorica の profile はリンクする全 target に同じ profile で付け、
+    `LUDIARS_CXX_HARDENING` と同じ preset では使わない (§C2.9)。
   - 根拠: `Ergo/include/ergo/math/batch.h:11-12` は「-DERGO_MATH_SIMD=0 で scalar を強制」と案内し、:28-34 でヘッダ内に既定値を付与する。`ERGO_MATH_SIMD` に CMake option が無い。add_f32・madd_f32・dot_f32 等は全て inline で本体が #if で切り替わる (:50,71,92,113,173) ので、ホストが一部の TU にだけ -D を付けると同名 inline 関数が 2 種類でき、リンカが黙って片方を選ぶ。
     hardening も同じで、`_GLIBCXX_ASSERTIONS` を付けた TU と付けていない TU を g++ 13 / clang++ 18 の `-O0` でリンクすると、付けていない TU を先にリンクした場合に、
     付けた TU の `std::vector` の範囲外読み出しが止まらなかった。
