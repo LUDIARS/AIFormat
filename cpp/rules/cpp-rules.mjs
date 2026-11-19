@@ -18,6 +18,7 @@
  *   同期コピーを置くときは `cpp/rules/` を (テストを除いて) ディレクトリごとコピーする。
  * - 依存なし (Node 22 の標準モジュールのみ)。
  */
+import { realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -591,6 +592,22 @@ export function main(argv, { stdout = process.stdout, stderr = process.stderr } 
   return runCli(argv, { scanChangeset, loadRepoConfig, stdout, stderr });
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+/**
+ * 直接起動されたか。Node は main の import.meta.url を実パスにするので、symlink を経由した起動パスとは字面が
+ * 違う。両方を実パスにして比べる (実パスが取れなければ字面で比べる)。
+ */
+function invokedDirectly() {
+  if (!process.argv[1]) return false;
+  const real = (p) => {
+    try {
+      return realpathSync(p);
+    } catch {
+      return path.resolve(p);
+    }
+  };
+  return real(process.argv[1]) === real(fileURLToPath(import.meta.url));
+}
+
+if (invokedDirectly()) {
   process.exitCode = main(process.argv.slice(2));
 }

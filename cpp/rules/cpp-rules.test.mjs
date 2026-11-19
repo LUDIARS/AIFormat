@@ -1,8 +1,8 @@
 // node --test cpp/rules/cpp-rules.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1030,6 +1030,33 @@ test("CLI: merge-base からの追加行だけを検査し、finding があれ�
     out = capture(); err = capture();
     assert.equal(main([dir, "--base", "main"], { stdout: out, stderr: err }), 1);
     assert.match(err.text, /未知のキー/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("CLI: symlink を経由して起動しても実行する (起動パスと自身を実パスで比べる)", (t) => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "cpp-rules-"));
+  try {
+    const link = path.join(dir, "rules-link");
+    try {
+      symlinkSync(HERE, link, "dir");
+    } catch (error) {
+      t.skip(`symlink を作れない (${error.code})`);
+      return;
+    }
+    const repo = path.join(dir, "repo");
+    mkdirSync(path.join(repo, "src"), { recursive: true });
+    sh(repo, "init", "-q");
+    writeFileSync(path.join(repo, "src/a.cpp"), "int a = 0;\n");
+    sh(repo, "add", ".");
+    sh(repo, "commit", "-q", "-m", "base");
+    writeFileSync(path.join(repo, "src/a.cpp"), "int a = 0;\nint b = atoi(s);\n");
+
+    const run = spawnSync(process.execPath, [path.join(link, "cpp-rules.mjs"), repo, "--base", "main"], { encoding: "utf8" });
+    assert.equal(run.status, 1, `stdout: ${run.stdout}\nstderr: ${run.stderr}`);
+    assert.match(run.stdout, /src\/a\.cpp:2: error \[§C2\.1 banned-api\]/);
+    assert.match(run.stdout, /finding 1 件/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
