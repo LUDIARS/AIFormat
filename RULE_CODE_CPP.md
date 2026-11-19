@@ -342,12 +342,13 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
 - **§C3.4 Revisor への登録テスト — 必須**: **C++ リポはビルド・テスト用の GitHub Actions workflow (ci.yml など) を置かず、検証は Revisor の登録テストで回す**
   (RULE_TEST §1 の再確認)。AIFormat が配信する `harness.yml` は本規約の対象外で、扱いは配信元 ([`scripts/HARNESS_CHECKS.md`](./scripts/HARNESS_CHECKS.md)) に従う。
   次の 4 件を `kinds` 付きで登録し、登録後に読み戻して確認する。
-  - `cpp-format` [code, test, config] — §C9.3
-  - `cpp-tidy` [code, test, config] — §C9.3
+  - `cpp-format` [code, test, config] — §C9.3 の `git clang-format` (C/C++ の拡張子に限る) を merge-base に掛け、出力が空なら pass
+  - `cpp-tidy` [code, test, config] — §C9.3 の clang-tidy-diff を merge-base からの diff に掛ける (LLVM 19、リポの `.clang-tidy`、verify preset の `compile_commands.json`)
   - `cpp-build-policy` `always: true` — 規則表を merge-base の diff に適用 (§C9.5)。diff への正規表現適用だけで軽く、`CMakeLists.txt` だけの変更も拾える
   - `ctest` [code, test, config, infra] — `cmake --preset verify` → build → `ctest --preset verify --output-on-failure --no-tests=error`
     (§C4.1 の条件では `verify-cxx23` も同じ手順で回す)
-  - §C3.7 の sanitizer preset は別ビルドツリーを要するので、上の 4 件とは別に `ctest-asan-ubsan` [code, test, config, infra] として追加登録する。
+  - §C3.7 の sanitizer preset は別ビルドツリーを要するので、上の 4 件とは別に `ctest-asan-ubsan` [code, test, config, infra] として追加登録する
+    (`cmake --preset asan-ubsan` → build → `ctest --preset asan-ubsan -LE gpu --output-on-failure --no-tests=error`)。
   - Revisor は `CMakeLists.txt` と `*.cmake` をビルド定義として infra、シェーダを code、`CMakePresets.json` とツール設定 (`.clang-format` / `.clang-tidy` /
     `praesidium.json` / `cpp-rules.json`) を config に分類する (`Revisor/src/change-classification.mjs`)。上の `kinds` はこれに合わせて固定している
     (`CMakeLists.txt` だけの変更でも `ctest` が選ばれる)。
@@ -734,7 +735,8 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
 - **§C9.2 スキルと委託 — 必須**: Castra の `cpp-conventions` スキル (`Castra/.claude/skills/cpp-conventions/SKILL.md`) は本書への同期ポインタにする
   (本文は写さず、使うたびに正本の本書を読ませる。スキルに置くのは読む順序・機械で止まるもの・ローカルで回すコマンドだけ)。
   coding-conventions には「C/C++ は cpp-conventions」の 1 行だけを足す。
-  リポの CLAUDE.md には上書き内容だけを書く。C++ の委託用 delegation template (`Castra/.claude/delegation-templates/`) には、本書のパス、§C3.4 の gate のコマンド、
+  リポの CLAUDE.md には上書き内容だけを書く。C++ の委託用 delegation template (`Castra/.claude/delegation-templates/`) には、本書のパス、§C3.4 の gate のコマンド
+  (`cpp-format` と `cpp-tidy` は §C9.3 のコマンド、`cpp-build-policy` は規則表の CLI、`ctest` は `verify` と §C4.1 の条件での `verify-cxx23`、`ctest-asan-ubsan`)、
   変更前に Praesidium をローカルで回す手順 (警告パス・展開パス・解析パス。フラグは RV-PRAESIDIUM-03 を参照) を固定文で入れる。
   Codex にはフックが効かないので、hook で担保する規則は必ず §C9.5 の規則表を通して `cpp-build-policy` gate にも載せ、hook だけの規則を作らない (例外は §C9.5 (a) の要点表示だけ)。
   `cpp-conventions` スキルは C/C++ のソースとヘッダ (Revisor `src/praesidium/languages.mjs` の拡張子表: `*.c` / `*.cc` / `*.cpp` / `*.h` / `*.hpp` など) と
@@ -747,8 +749,17 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
   - リポ側で上書きできるのは末尾のキーと CheckOptions の追記だけ。third_party には `DisableFormat: true` を置く。
   - clang-format と clang-tidy は **LLVM 19 に固定** する。正本の check と option は、LLVM 19 の `clang-tidy --verify-config` が
     `No config errors detected.` だけを出すものに限る。LLVM 20 で入る名前と option は、版を上げる PR で入れる。
-  - 整形の検査は `git clang-format --diff -q <merge-base>` で行い、終了コードではなく出力の有無で判定する。
-    `-q` が無いと、整形済みでも「clang-format did not modify any files」などの 1 行が出て、出力が空にならない。clang-tidy は clang-tidy-diff で変更行に限定する。
+  - 整形の検査は `git clang-format --diff -q --extensions <C/C++ の拡張子> <merge-base>` で行い、終了コードではなく出力の有無で判定する。
+    - `-q` が無いと、整形済みでも「clang-format did not modify any files」などの 1 行が出て、出力が空にならない。
+    - `--extensions` には規則表と同じ C/C++ の拡張子 (Revisor `languages.mjs` の表から `.inc` / `.def` の断片を除いたもの) を渡す:
+      `c,cc,cpp,cxx,c++,cppm,ixx,mpp,ccm,cxxm,c++m,m,mm,h,hh,hpp,hxx,h++,inl,ipp,tpp,tcc` (大文字小文字を区別しないので `.C` / `.M` も入る)。
+      git clang-format の既定の一覧 (LLVM 19) には `json`・`js`・`ts`・`java`・`proto`・`cs`・Verilog も入っており、正本の `.clang-format` は `Language:` を
+      持たず全言語に効くので、指定しないと §C2.10 の `praesidium.json` の登録まで整形の差分になって落ちる。
+      シェーダは既定の一覧に無く、clang-format に GLSL の読み方も無い (C++ として読む) ので対象にしない。
+  - clang-tidy は clang-tidy-diff で変更行に限定する: `git diff -U0 <merge-base> | clang-tidy-diff -p1 -path <verify preset のビルドディレクトリ> -quiet`。
+    LLVM 19 の clang-tidy-diff と clang-tidy で、リポの `.clang-tidy` と verify preset の `compile_commands.json` (§C4.4) を使う。
+    finding は `.clang-tidy` の `WarningsAsErrors` でエラーになるので、終了コードで判定する。
+  - どちらも未追跡のファイルを見ないので、ローカルで回すときは新しいファイルを先に `git add -N` (か commit) する。
   - 有効にする check は正本に名前で列挙する (`clang-analyzer-optin.taint.*` と `clang-analyzer-cplusplus.*` を含む)。グループのワイルドカードは、除外する check の一覧を付けた場合だけ許す。
   - 根拠: Ergo と Ludellus-Native にはこれらの設定ファイルが無い。`modernize-use-constraints` (17 以上)、`bugprone-return-const-ref-from-parameter` と optin.taint の TaintedAlloc (19 以上) を使うため。
   - 担保: [gate — `cpp-format`、`cpp-tidy`]
@@ -776,7 +787,9 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
   - (1) hook: C++ / CMake / シェーダを Edit / Write したとき `Castra/.claude/hooks/cpp-convention-check.mjs` が動く。3 秒以内に終わり、操作は止めない
     (exit は常に 0。所見は PostToolUse の追加コンテキストで返し、error の所見も gate で fail するのでその場で直させる)。
     (a) セッションとリポの組ごとに最初の 1 回だけ要点を表示する / (b) 編集したファイル 1 本に `Revisor/src/praesidium/rules.mjs` の `sourceFindings` を適用する
-    (rules.mjs が読むのは同じディレクトリの `languages.mjs`・`native-lexer.mjs`・`javascript-evaluation.mjs` だけ) / (c) 規則表を追加行に適用する。
+    (rules.mjs が読むのは同じディレクトリの `languages.mjs`・`native-lexer.mjs`・`javascript-evaluation.mjs` だけ) / (c) 規則表のうち単一ファイルの規則
+    (scope が added-lines / file。file の規則は足された行があればファイル全体を見る) を、HEAD から作業ツリーまでに足された行 (未追跡のファイルは全体) に適用する。変更集合の規則 (§C2.12・§C3.5・§C3.8) と、
+    ブランチで先にコミットした行は hook では見ず、(2) の gate (merge-base) に任せる。
     Revisor・AIFormat の clone はあるのに検査器を読み込めないとき (古い clone など) は、セッションごとに 1 回「Praesidium tripwire 未実行」
     「AIFormat の規則表 未実行」と出す。clone が無い環境では何も出さずにその検査器を外すので、そこでは Praesidium の preflight (gate) と
     `cpp-conventions` スキルのローカル実行の手順が担保する。

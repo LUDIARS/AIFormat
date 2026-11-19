@@ -9,7 +9,8 @@
 #   足せるのは、この正本に無いキーの末尾追記だけ。既存キーを変えたいときは
 #   正本へ PR を出す。third_party/ には "DisableFormat: true" と
 #   "SortIncludes: Never" だけの .clang-format を置く (§C9.3)。
-# 検査: git clang-format --diff <merge-base> の出力で判定する (§C9.3 / §C9.6)。
+# 検査: §C9.3 の git clang-format --diff -q --extensions <C/C++ の拡張子> <merge-base> の出力で判定する
+#   (--extensions を省くと json なども整形される。§C9.3 / §C9.6)。
 #
 # 値は Ergo の実コード (include/ergo/health/health.h, include/ergo/math/vec.h ほか
 # include/ src/ の .h/.cpp 471 本) に合わせた。手で桁揃えした箇所 (引数の縦揃え、

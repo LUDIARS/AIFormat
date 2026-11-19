@@ -205,5 +205,18 @@ node --test cpp/LudiarsCxxBaseline.test.mjs
 18 では `(19+)` の check が unknown と出るのは想定どおり (版を下げて運用しない)。
 
 リポでの検査は Revisor 登録テスト `cpp-format` / `cpp-tidy` (§C3.4) が、merge-base からの変更範囲
-だけに掛ける (§C9.6)。整形は `git clang-format --diff -q <merge-base>` の出力で (`-q` が無いと整形済みでも
-1 行の報告が出る)、clang-tidy は clang-tidy-diff で変更行に限って判定する。
+だけに掛ける (§C9.6)。コマンドの正は RULE_CODE_CPP §C9.3。
+
+```sh
+base=$(git merge-base origin/main HEAD)
+git add -N <新しいファイル>   # git clang-format と git diff は未追跡のファイルを見ない
+# 整形: 出力が空なら pass (-q が無いと整形済みでも 1 行の報告が出る)
+git clang-format --diff -q --extensions c,cc,cpp,cxx,c++,cppm,ixx,mpp,ccm,cxxm,c++m,m,mm,h,hh,hpp,hxx,h++,inl,ipp,tpp,tcc "$base"
+# clang-tidy: LLVM 19。リポの .clang-tidy と verify preset の compile_commands.json で変更行だけを見て、終了コードで判定する
+git diff -U0 "$base" | clang-tidy-diff -p1 -path <verify preset のビルドディレクトリ> -quiet
+```
+
+`--extensions` を省くと、git clang-format の既定の一覧にある `json` などにも正本の `.clang-format` (`Language:` を持たず全言語に効く) が掛かり、
+`praesidium.json` の登録 (§C2.10) が整形の差分になって落ちる。正本に `Language: Json` と `DisableFormat: true` の節を足す方法は採らない:
+既定の一覧には `js`・`ts`・`java`・`proto`・`cs`・Verilog もあって JSON だけでは足りず、2 つ目の YAML 文書を末尾に置くと、リポ側の
+「末尾への追記」(上の「各リポへの同期」) がその節に入ってしまうため。シェーダは既定の一覧に無く、clang-format に GLSL の読み方も無いので対象にしない。
