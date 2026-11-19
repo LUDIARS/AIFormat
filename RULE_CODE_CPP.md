@@ -282,10 +282,17 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
   - (1) `coverage.nativeScope` が `changed` か `repository` か。
   - (2) 解析されなかったものは pass ではない: `coverage.nativeNotAnalyzed` (Objective-C/C++ のユニットとヘッダ) と、
     どのユニットもインスタンス化しないテンプレートの本体 (§C2.3)。
+    host package (`praesidium.host.json` の `-isystem`) の中で終わり、経路の大半が host のコードを通る analyzer の report も、
+    記録だけの advisory で、リポのコードの pass ではない (check の `hostReports`、件数は `coverage.nativeHostReports`。preflight の行に advisory として出る。RV-PRAESIDIUM-03)。
+    ライブラリへ短く入るリポ側の欠陥もここに入るので、`hostReports` の `file`・`line`・`checker` から呼び出し側を確かめる。
+    そのユニットの診断パスが読んだリポのファイルに `#line` があると、report の場所が host のヘッダに見せかけられうるので、advisory にせず
+    `reason` `host-report-relocatable` で fail にする (§C9.4)。
   - (3) findings 0 件は安全の証明ではない。
-  - (4) diagnostics は保持されないので、Praesidium と同じパス (警告パス・展開パス・解析パス。RV-PRAESIDIUM-03) をローカルで回して再現する。
-    `--analyze` だけでは driver が `-w` を足すので警告は 1 つも出ない。
-  - 根拠: `Revisor/spec/feature/praesidium.md` の RV-PRAESIDIUM-01 / 03。
+  - (4) 失敗した native の検査は `reason` と、上限付きで秘密を伏せた `output` を持つ (`praesidium.md` 冒頭): `compiler-failed` (コンパイラが 0 以外で終了した、または起動に失敗した)、
+    `compiler-diagnostics` (0 で終了したが警告・エラーを出した)、`host-report-relocatable`、未完了 (status `error`) になる `compiler-unavailable`・
+    `terminated` (止められた。時間切れとは限らない)・`output-limit`。まずそれを読み、足りなければ Praesidium と同じパス (警告パス・展開パス・解析パス。
+    RV-PRAESIDIUM-03) をローカルで回して再現する。`--analyze` だけでは driver が `-w` を足すので警告は 1 つも出ない。
+  - 根拠: `Revisor/spec/feature/praesidium.md` の冒頭 (失敗した検査の `reason` / `output`) と RV-PRAESIDIUM-01 / 03。
   - 担保: [memory — `common/REVIEW_VULNERABILITY.md` の必須項目と ludiars-review の出力欄 (`latest.json` の `praesidium`。Castra の C++ harness の PR で実装)。gate (未実装) — `check-rule-ids` の対応漏れ検査 (§C9.1)。実装されるまでは memory だけ]
   - 関係: RULE_CODE「運用」(規約が表、レビューが裏) の C++ 版
 - **§C2.12 シェーダと C++ の型共有 — 必須**:
@@ -756,6 +763,8 @@ C++ は、コンパイルが通っても未定義動作・ODR 違反・プラッ
     抑制できない error (`suppressible: false`) として報告する。Praesidium の `native.analysis-suppression` は、上の全部に加えて規則表が見ない形
     (GNU の linemarker、`suppress` と `gsl` の `#define` / `#undef`、`analyzer_noreturn`、`__INCLUDE_LEVEL__` / `__BASE_FILE__` など) を含む一覧をリポ全体で拒否する
     (規則表はその一部だけを変更行で見る。一覧は RV-PRAESIDIUM-01 を正とする)。
+    `#line` 指令は生成したパーサが使うので拒否されないが、ユニットが読むリポのファイルにあると、そのユニットの host package の analyzer report は
+    advisory にならず `host-report-relocatable` で fail になる (§C2.11、RV-PRAESIDIUM-03)。そうして落ちたときは、生成物を `#line` を出さない設定で生成し直す (fail を抑制で消さない)。
   - Praesidium の禁止 API と analyzer の警告は抑制せずにコードを直す。
   - 根拠: Praesidium は抑制を持たない設計 (RV-PRAESIDIUM-01)。ソース内の pragma は PR が `-w` を渡すのと同じ効果を持つので、2026-11-08 に Praesidium は
     理由の有無にかかわらず拒否すると決め、本規約の許可を MSVC の `#pragma warning` に狭めた (規約どおりの 1 行がそのリポの全 PR を止めていた)。
